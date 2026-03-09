@@ -36,7 +36,7 @@ export default function Login({ onLogin }: LoginProps) {
             <ShieldCheck className="text-white" size={32} />
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">SISTEM eMBJ</h1>
-          <p className="text-slate-400 text-sm mt-2">Suruhanjaya Perkhidmatan Awam Negeri Sarawak</p>
+          <p className="text-slate-400 text-sm mt-2">Sarawak Civil Service</p>
         </div>
 
         <div className="p-8">
