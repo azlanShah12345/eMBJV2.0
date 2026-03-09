@@ -1,0 +1,663 @@
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import { existsSync } from 'fs';
+import { fileURLToPath } from 'url';
+import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import { Pool } from 'pg';
+import { createClient } from '@supabase/supabase-js';
+import { createServer as createViteServer } from 'vite';
+
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const requireEnv = (name: string) => {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return value;
+};
+
+const DATABASE_URL = requireEnv('DATABASE_URL');
+const JWT_SECRET = requireEnv('JWT_SECRET');
+const SUPABASE_URL = requireEnv('SUPABASE_URL');
+const SUPABASE_SERVICE_ROLE_KEY = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
+const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'meeting-minutes';
+const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || '0.0.0.0';
+
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
+});
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
+type AuthUser = {
+  id: number;
+  username: string;
+  role: 'ADMIN' | 'USER';
+  department_id: number | null;
+};
+
+const normalizeMinitPath = (minitPath: string | null | undefined) => {
+  if (!minitPath) return null;
+  const normalized = minitPath.replace(/\\/g, '/');
+  return normalized.startsWith('http://') || normalized.startsWith('https://')
+    ? normalized
+    : normalized.startsWith('/')
+      ? normalized
+      : `/${normalized}`;
+};
+
+const query = async <T = any>(text: string, params: any[] = []) => {
+  const result = await pool.query<T>(text, params);
+  return result;
+};
+
+const bootstrapDatabase = async () => {
+  await query(`
+    CREATE TABLE IF NOT EXISTS departments (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      password TEXT NOT NULL,
+      role TEXT NOT NULL CHECK (role IN ('ADMIN', 'USER')),
+      department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS categories (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS meetings (
+      id SERIAL PRIMARY KEY,
+      bil_mesyuarat TEXT NOT NULL,
+      tarikh_mesyuarat DATE NOT NULL,
+      department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+      minit_path TEXT,
+      submission_method TEXT,
+      is_locked INTEGER NOT NULL DEFAULT 0,
+      unlock_requested INTEGER NOT NULL DEFAULT 0,
+      unlock_rejected INTEGER NOT NULL DEFAULT 0,
+      delete_requested INTEGER NOT NULL DEFAULT 0,
+      delete_rejected INTEGER NOT NULL DEFAULT 0,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS issues (
+      id SERIAL PRIMARY KEY,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      category TEXT NOT NULL,
+      is_from_previous INTEGER NOT NULL DEFAULT 0,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('Selesai', 'Belum Selesai')),
+      responsible_officer TEXT,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await query(`
+    ALTER TABLE meetings ADD COLUMN IF NOT EXISTS minit_path TEXT;
+    ALTER TABLE meetings ADD COLUMN IF NOT EXISTS submission_method TEXT;
+    ALTER TABLE meetings ADD COLUMN IF NOT EXISTS unlock_requested INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE meetings ADD COLUMN IF NOT EXISTS unlock_rejected INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE meetings ADD COLUMN IF NOT EXISTS delete_requested INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE meetings ADD COLUMN IF NOT EXISTS delete_rejected INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE meetings ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE issues ADD COLUMN IF NOT EXISTS is_from_previous INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE issues ADD COLUMN IF NOT EXISTS responsible_officer TEXT;
+    ALTER TABLE issues ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+
+  const defaultDepartments = ['HQ', 'IT', 'HR', 'FINANCE'];
+  const defaultCategories = ['Kebajikan', 'Perjawatan', 'Kewangan', 'Infrastruktur', 'Lain-lain'];
+
+  for (const name of defaultDepartments) {
+    await query('INSERT INTO departments (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [name]);
+  }
+
+  for (const name of defaultCategories) {
+    await query('INSERT INTO categories (name) VALUES ($1) ON CONFLICT (name) DO NOTHING', [name]);
+  }
+
+  const adminPassword = process.env.ADMIN_DEFAULT_PASSWORD;
+  if (adminPassword) {
+    const existingAdmin = await query('SELECT id FROM users WHERE username = $1', ['admin']);
+    if (existingAdmin.rowCount === 0) {
+      const hash = bcrypt.hashSync(adminPassword, 10);
+      await query('INSERT INTO users (username, password, role) VALUES ($1, $2, $3)', ['admin', hash, 'ADMIN']);
+    }
+  }
+};
+
+const uploadMinutesToSupabase = async (file?: Express.Multer.File) => {
+  if (!file) return null;
+
+  const ext = path.extname(file.originalname) || '.pdf';
+  const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`;
+  const objectPath = `minutes/${filename}`;
+  const { error } = await supabase.storage
+    .from(SUPABASE_STORAGE_BUCKET)
+    .upload(objectPath, file.buffer, {
+      contentType: file.mimetype || 'application/pdf',
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+  if (error) {
+    throw error;
+  }
+
+  const { data } = supabase.storage.from(SUPABASE_STORAGE_BUCKET).getPublicUrl(objectPath);
+  return data.publicUrl;
+};
+
+async function startServer() {
+  await bootstrapDatabase();
+
+  const app = express();
+
+  app.use(cors());
+  app.use(express.json());
+  app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
+  const authenticate = (req: any, res: any, next: any) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+    const token = authHeader.split(' ')[1];
+    try {
+      req.user = jwt.verify(token, JWT_SECRET) as AuthUser;
+      next();
+    } catch (_error) {
+      res.status(401).json({ error: 'Invalid token' });
+    }
+  };
+
+  const isAdmin = (req: any, res: any, next: any) => {
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+    next();
+  };
+
+  app.post('/api/login', async (req, res) => {
+    const { username, password } = req.body;
+    const result = await query(`
+      SELECT u.*, d.name AS department_name
+      FROM users u
+      LEFT JOIN departments d ON d.id = u.department_id
+      WHERE u.username = $1
+    `, [username]);
+
+    const user = result.rows[0] as any;
+    if (!user || !bcrypt.compareSync(password, user.password)) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        department_id: user.department_id,
+      },
+      JWT_SECRET
+    );
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        department_id: user.department_id,
+        department_name: user.department_name,
+      },
+    });
+  });
+
+  app.post('/api/change-password', authenticate, async (req: any, res) => {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+    if (String(new_password).length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const userResult = await query('SELECT id, password FROM users WHERE id = $1', [req.user.id]);
+    const user = userResult.rows[0] as any;
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!bcrypt.compareSync(current_password, user.password)) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    const hash = bcrypt.hashSync(new_password, 10);
+    await query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.user.id]);
+    res.json({ success: true });
+  });
+
+  app.get('/api/users', authenticate, isAdmin, async (_req, res) => {
+    const users = await query(`
+      SELECT u.id, u.username, u.role, u.department_id, d.name AS department_name
+      FROM users u
+      LEFT JOIN departments d ON d.id = u.department_id
+      ORDER BY u.username
+    `);
+    res.json(users.rows);
+  });
+
+  app.post('/api/users', authenticate, isAdmin, async (req, res) => {
+    const { username, password, role, department_id } = req.body;
+    const hash = bcrypt.hashSync(password, 10);
+    try {
+      const result = await query(
+        'INSERT INTO users (username, password, role, department_id) VALUES ($1, $2, $3, $4) RETURNING id',
+        [username, hash, role, department_id || null]
+      );
+      res.json({ id: result.rows[0].id });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/users/:id', authenticate, isAdmin, async (req, res) => {
+    await query('DELETE FROM users WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.get('/api/departments', authenticate, async (_req, res) => {
+    const departments = await query('SELECT * FROM departments ORDER BY name');
+    res.json(departments.rows);
+  });
+
+  app.post('/api/departments', authenticate, isAdmin, async (req, res) => {
+    try {
+      const result = await query('INSERT INTO departments (name) VALUES ($1) RETURNING id', [req.body.name]);
+      res.json({ id: result.rows[0].id });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/departments/:id', authenticate, isAdmin, async (req, res) => {
+    await query('DELETE FROM departments WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.get('/api/categories', authenticate, async (_req, res) => {
+    const categories = await query('SELECT * FROM categories ORDER BY name');
+    res.json(categories.rows);
+  });
+
+  app.post('/api/categories', authenticate, isAdmin, async (req, res) => {
+    try {
+      const result = await query('INSERT INTO categories (name) VALUES ($1) RETURNING id', [req.body.name]);
+      res.json({ id: result.rows[0].id });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete('/api/categories/:id', authenticate, isAdmin, async (req, res) => {
+    await query('DELETE FROM categories WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.get('/api/meetings', authenticate, async (req: any, res) => {
+    let { department_id } = req.query;
+    if (req.user.role !== 'ADMIN') {
+      department_id = req.user.department_id;
+    }
+
+    const params: any[] = [];
+    let filterSql = '';
+    if (department_id) {
+      params.push(Number(department_id));
+      filterSql = `WHERE m.department_id = $${params.length}`;
+    }
+
+    const meetings = await query(`
+      SELECT
+        m.*,
+        d.name AS department_name,
+        COALESCE(COUNT(i.id), 0) AS total_issues,
+        COALESCE(SUM(CASE WHEN i.status = 'Selesai' THEN 1 ELSE 0 END), 0) AS completed_issues,
+        STRING_AGG(DISTINCT i.category, ',' ORDER BY i.category) AS issue_categories
+      FROM meetings m
+      JOIN departments d ON d.id = m.department_id
+      LEFT JOIN issues i ON i.meeting_id = m.id
+      ${filterSql}
+      GROUP BY m.id, d.name
+      ORDER BY m.tarikh_mesyuarat DESC, m.id DESC
+    `, params);
+
+    res.json(meetings.rows.map((meeting: any) => ({
+      ...meeting,
+      total_issues: Number(meeting.total_issues || 0),
+      completed_issues: Number(meeting.completed_issues || 0),
+      minit_path: normalizeMinitPath(meeting.minit_path),
+    })));
+  });
+
+  app.post('/api/meetings', authenticate, upload.single('minit'), async (req: any, res) => {
+    const { bil_mesyuarat, tarikh_mesyuarat, submission_method } = req.body;
+    const departmentId = req.user.role === 'ADMIN'
+      ? Number(req.body.department_id || req.user.department_id)
+      : Number(req.user.department_id);
+    const minitPath = await uploadMinutesToSupabase(req.file || undefined);
+
+    const result = await query(
+      `
+      INSERT INTO meetings (
+        bil_mesyuarat,
+        tarikh_mesyuarat,
+        department_id,
+        created_by,
+        minit_path,
+        submission_method,
+        unlock_requested,
+        unlock_rejected,
+        delete_requested,
+        delete_rejected
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, 0)
+      RETURNING id
+      `,
+      [bil_mesyuarat, tarikh_mesyuarat, departmentId, req.user.id, minitPath, submission_method || null]
+    );
+
+    res.json({ id: result.rows[0].id });
+  });
+
+  app.delete('/api/meetings/:id', authenticate, async (req: any, res) => {
+    const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
+    const meeting = meetingResult.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (req.user.role !== 'ADMIN' && meeting.is_locked) {
+      return res.status(403).json({ error: 'Meeting is locked. Request delete permission from HQ.' });
+    }
+
+    await query('DELETE FROM meetings WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.post('/api/meetings/:id/request-delete', authenticate, async (req: any, res) => {
+    const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
+    const meeting = meetingResult.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await query('UPDATE meetings SET delete_requested = 1, delete_rejected = 0 WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.post('/api/meetings/:id/approve-delete', authenticate, isAdmin, async (req, res) => {
+    await query('DELETE FROM meetings WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.post('/api/meetings/:id/reject-delete', authenticate, isAdmin, async (req, res) => {
+    await query('UPDATE meetings SET delete_requested = 0, delete_rejected = 1 WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.get('/api/meetings/:id', authenticate, async (req: any, res) => {
+    const result = await query(`
+      SELECT
+        m.*,
+        d.name AS department_name,
+        COALESCE(COUNT(i.id), 0) AS total_issues,
+        COALESCE(SUM(CASE WHEN i.status = 'Selesai' THEN 1 ELSE 0 END), 0) AS completed_issues,
+        STRING_AGG(DISTINCT i.category, ',' ORDER BY i.category) AS issue_categories
+      FROM meetings m
+      JOIN departments d ON d.id = m.department_id
+      LEFT JOIN issues i ON i.meeting_id = m.id
+      WHERE m.id = $1
+      GROUP BY m.id, d.name
+    `, [req.params.id]);
+
+    const meeting = result.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    res.json({
+      ...meeting,
+      total_issues: Number(meeting.total_issues || 0),
+      completed_issues: Number(meeting.completed_issues || 0),
+      minit_path: normalizeMinitPath(meeting.minit_path),
+    });
+  });
+
+  app.get('/api/meetings/:id/issues', authenticate, async (req: any, res) => {
+    const issueResult = await query(`
+      SELECT
+        i.*,
+        m.department_id,
+        m.is_locked
+      FROM issues i
+      JOIN meetings m ON m.id = i.meeting_id
+      WHERE i.meeting_id = $1
+      ORDER BY i.id ASC
+    `, [req.params.id]);
+
+    const meetingDepartmentId = issueResult.rows[0]?.department_id;
+    if (meetingDepartmentId && req.user.role !== 'ADMIN' && Number(meetingDepartmentId) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    res.json(issueResult.rows.map((issue: any) => ({
+      ...issue,
+      is_from_previous: Number(issue.is_from_previous || 0),
+    })));
+  });
+
+  app.post('/api/meetings/:id/issues', authenticate, async (req: any, res) => {
+    const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
+    const meeting = meetingResult.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (meeting.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
+
+    const { category, title, status, responsible_officer, is_from_previous } = req.body;
+    const result = await query(
+      `
+      INSERT INTO issues (meeting_id, category, is_from_previous, title, status, responsible_officer)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING id
+      `,
+      [req.params.id, category, is_from_previous ? 1 : 0, title, status, responsible_officer || null]
+    );
+
+    res.json({ id: result.rows[0].id });
+  });
+
+  app.patch('/api/issues/:id', authenticate, async (req: any, res) => {
+    const issueResult = await query(`
+      SELECT i.*, m.department_id, m.is_locked
+      FROM issues i
+      JOIN meetings m ON m.id = i.meeting_id
+      WHERE i.id = $1
+    `, [req.params.id]);
+    const issue = issueResult.rows[0] as any;
+
+    if (!issue) return res.status(404).json({ error: 'Issue not found' });
+    if (req.user.role !== 'ADMIN' && Number(issue.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (issue.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
+
+    const updates: string[] = [];
+    const params: any[] = [];
+    const pushUpdate = (column: string, value: any) => {
+      params.push(value);
+      updates.push(`${column} = $${params.length}`);
+    };
+
+    if (req.body.status !== undefined) pushUpdate('status', req.body.status);
+    if (req.body.title !== undefined) pushUpdate('title', req.body.title);
+    if (req.body.category !== undefined) pushUpdate('category', req.body.category);
+    if (req.body.responsible_officer !== undefined) pushUpdate('responsible_officer', req.body.responsible_officer);
+    if (req.body.is_from_previous !== undefined) pushUpdate('is_from_previous', req.body.is_from_previous ? 1 : 0);
+    pushUpdate('updated_at', new Date().toISOString());
+
+    params.push(req.params.id);
+    await query(`UPDATE issues SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
+    res.json({ success: true });
+  });
+
+  app.delete('/api/issues/:id', authenticate, async (req: any, res) => {
+    const issueResult = await query(`
+      SELECT i.*, m.department_id, m.is_locked
+      FROM issues i
+      JOIN meetings m ON m.id = i.meeting_id
+      WHERE i.id = $1
+    `, [req.params.id]);
+    const issue = issueResult.rows[0] as any;
+
+    if (!issue) return res.status(404).json({ error: 'Issue not found' });
+    if (req.user.role !== 'ADMIN' && Number(issue.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    if (issue.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
+
+    await query('DELETE FROM issues WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.patch('/api/meetings/:id/lock', authenticate, isAdmin, async (req, res) => {
+    await query('UPDATE meetings SET is_locked = 1, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.post('/api/meetings/:id/submit', authenticate, async (req: any, res) => {
+    const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
+    const meeting = meetingResult.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await query(
+      'UPDATE meetings SET is_locked = 1, unlock_requested = 0, unlock_rejected = 0, delete_requested = 0, delete_rejected = 0 WHERE id = $1',
+      [req.params.id]
+    );
+    res.json({ success: true });
+  });
+
+  app.post('/api/meetings/:id/request-unlock', authenticate, async (req: any, res) => {
+    const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
+    const meeting = meetingResult.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await query('UPDATE meetings SET unlock_requested = 1, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.post('/api/meetings/:id/approve-unlock', authenticate, isAdmin, async (req, res) => {
+    await query('UPDATE meetings SET is_locked = 0, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.post('/api/meetings/:id/reject-unlock', authenticate, isAdmin, async (req, res) => {
+    await query('UPDATE meetings SET unlock_requested = 0, unlock_rejected = 1 WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
+  });
+
+  app.get('/api/stats', authenticate, async (req: any, res) => {
+    let { department_id, bil_mesyuarat, category } = req.query;
+    if (req.user.role !== 'ADMIN') {
+      department_id = req.user.department_id;
+    }
+
+    const filters = ['m.is_locked = 1'];
+    const params: any[] = [];
+    if (department_id) {
+      params.push(Number(department_id));
+      filters.push(`m.department_id = $${params.length}`);
+    }
+    if (bil_mesyuarat) {
+      params.push(String(bil_mesyuarat));
+      filters.push(`m.bil_mesyuarat = $${params.length}`);
+    }
+    if (category) {
+      params.push(String(category));
+      filters.push(`i.category = $${params.length}`);
+    }
+
+    const stats = await query(`
+      SELECT
+        i.category,
+        COUNT(*) AS total,
+        SUM(CASE WHEN i.status = 'Selesai' THEN 1 ELSE 0 END) AS selesai,
+        SUM(CASE WHEN i.status <> 'Selesai' THEN 1 ELSE 0 END) AS belum_selesai
+      FROM issues i
+      JOIN meetings m ON m.id = i.meeting_id
+      WHERE ${filters.join(' AND ')}
+      GROUP BY i.category
+      ORDER BY i.category
+    `, params);
+
+    res.json(stats.rows.map((row: any) => ({
+      category: row.category,
+      total: Number(row.total || 0),
+      selesai: Number(row.selesai || 0),
+      belum_selesai: Number(row.belum_selesai || 0),
+    })));
+  });
+
+  const distPath = path.resolve(__dirname, 'dist');
+  if (existsSync(distPath)) {
+    app.use(express.static(distPath));
+    app.get('*', (req, res, next) => {
+      if (req.path.startsWith('/api/')) return next();
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
+  } else {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  }
+
+  app.listen(PORT, HOST, () => {
+    console.log(`Production-ready server listening on http://${HOST}:${PORT}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
