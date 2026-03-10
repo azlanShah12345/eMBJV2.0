@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
-import { CategoryStats, Department, Meeting } from '../types';
+import { CategoryStats, Department, Meeting, PengelasanReport } from '../types';
 import { Filter, Download, TrendingUp, Users, FileSpreadsheet, Lock, CheckCircle2, Trash2, FileText, Tag, Building2, Clock3, RefreshCw, Activity } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../components/Toast';
@@ -56,6 +56,11 @@ export default function Dashboard() {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+  };
+
+  const formatPengelasanTitles = (titles: string[]) => {
+    if (!titles.length) return '-';
+    return titles.map((title, index) => `${index + 1}. ${title}`).join('\n');
   };
 
   useEffect(() => {
@@ -609,6 +614,147 @@ export default function Dashboard() {
     XLSX.writeFile(workbook, 'Lampiran-B-Analitik.xlsx');
   };
 
+  const fetchPengelasanReport = async (): Promise<PengelasanReport | null> => {
+    try {
+      const report = await api.getPengelasanReport({
+        department_id: deptId ? Number(deptId) : undefined,
+        bil_mesyuarat: bil || undefined,
+        category: category || undefined,
+      });
+      if (!report.rows.some((row) =>
+        row.previous_selesai_titles.length ||
+        row.previous_belum_titles.length ||
+        row.new_selesai_titles.length ||
+        row.new_belum_titles.length
+      )) {
+        showToast('Tiada data isu untuk dijana bagi Jadual Pengelasan', 'error');
+        return null;
+      }
+      return report;
+    } catch (error) {
+      console.error(error);
+      showToast('Gagal mendapatkan data Jadual Pengelasan', 'error');
+      return null;
+    }
+  };
+
+  const exportPengelasanPDF = async () => {
+    const report = await fetchPengelasanReport();
+    if (!report) return;
+
+    try {
+      const doc = new jsPDF({ orientation: 'landscape' }) as any;
+      doc.setFontSize(13);
+      doc.text('JADUAL PENGELASAN DAN PENYELESAIAN ISU', 14, 18);
+      doc.setFontSize(10);
+      doc.text(`Jabatan: ${report.department_name}`, 14, 26);
+      doc.text(`Minit Mesyuarat MBJ: ${report.meeting_label}`, 14, 32);
+      doc.text(`Tahun: ${report.report_year}`, 14, 38);
+
+      autoTable(doc, {
+        startY: 44,
+        head: [
+          [
+            { content: 'Bil.', rowSpan: 2 },
+            { content: 'Kategori', rowSpan: 2 },
+            { content: 'Perkara berbangkit dari minit MBJ yang lalu', colSpan: 3 },
+            { content: 'Isu baharu yang dibincangkan dalam mesyuarat terkini', colSpan: 3 },
+          ],
+          [
+            { content: 'Selesai' },
+            { content: 'Belum selesai' },
+            { content: 'Tajuk isu / Catatan' },
+            { content: 'Selesai' },
+            { content: 'Belum selesai' },
+            { content: 'Tajuk isu / Catatan' },
+          ],
+        ],
+        body: [
+          ...report.rows.map((row, index) => ([
+            index + 1,
+            row.category,
+            row.previous_selesai_titles.length,
+            row.previous_belum_titles.length,
+            formatPengelasanTitles([
+              ...row.previous_selesai_titles.map((title) => `[Selesai] ${title}`),
+              ...row.previous_belum_titles.map((title) => `[Belum selesai] ${title}`),
+            ]),
+            row.new_selesai_titles.length,
+            row.new_belum_titles.length,
+            formatPengelasanTitles([
+              ...row.new_selesai_titles.map((title) => `[Selesai] ${title}`),
+              ...row.new_belum_titles.map((title) => `[Belum selesai] ${title}`),
+            ]),
+          ])),
+          [
+            '',
+            'Jumlah isu',
+            report.totals.previous_selesai,
+            report.totals.previous_belum,
+            '',
+            report.totals.new_selesai,
+            report.totals.new_belum,
+            `Jumlah keseluruhan: ${report.totals.overall}`,
+          ],
+        ],
+        theme: 'grid',
+        headStyles: { fillColor: [15, 23, 42], halign: 'center', valign: 'middle' },
+        styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', valign: 'top' },
+        columnStyles: {
+          0: { cellWidth: 12, halign: 'center' },
+          1: { cellWidth: 34 },
+          2: { cellWidth: 16, halign: 'center' },
+          3: { cellWidth: 22, halign: 'center' },
+          4: { cellWidth: 48 },
+          5: { cellWidth: 16, halign: 'center' },
+          6: { cellWidth: 22, halign: 'center' },
+          7: { cellWidth: 56 },
+        },
+      });
+
+      downloadPdf(doc, 'Jadual-Pengelasan.pdf');
+      showToast('Jadual Pengelasan PDF berjaya dimuat turun');
+    } catch (error) {
+      console.error(error);
+      showToast('Gagal menjana Jadual Pengelasan PDF', 'error');
+    }
+  };
+
+  const exportPengelasanExcel = async () => {
+    const report = await fetchPengelasanReport();
+    if (!report) return;
+
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ['JADUAL PENGELASAN DAN PENYELESAIAN ISU'],
+      [`Jabatan: ${report.department_name}`],
+      [`Minit Mesyuarat MBJ: ${report.meeting_label}`],
+      [`Tahun: ${report.report_year}`],
+      [],
+      ['Bil.', 'Kategori', 'Perkara Berbangkit - Selesai', 'Perkara Berbangkit - Belum Selesai', 'Perkara Berbangkit - Tajuk Isu / Catatan', 'Isu Baharu - Selesai', 'Isu Baharu - Belum Selesai', 'Isu Baharu - Tajuk Isu / Catatan'],
+      ...report.rows.map((row, index) => [
+        index + 1,
+        row.category,
+        row.previous_selesai_titles.length,
+        row.previous_belum_titles.length,
+        [
+          ...row.previous_selesai_titles.map((title) => `[Selesai] ${title}`),
+          ...row.previous_belum_titles.map((title) => `[Belum selesai] ${title}`),
+        ].join('\n'),
+        row.new_selesai_titles.length,
+        row.new_belum_titles.length,
+        [
+          ...row.new_selesai_titles.map((title) => `[Selesai] ${title}`),
+          ...row.new_belum_titles.map((title) => `[Belum selesai] ${title}`),
+        ].join('\n'),
+      ]),
+      ['', 'Jumlah isu', report.totals.previous_selesai, report.totals.previous_belum, '', report.totals.new_selesai, report.totals.new_belum, report.totals.overall],
+    ]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Jadual Pengelasan');
+    XLSX.writeFile(workbook, 'Jadual-Pengelasan.xlsx');
+    showToast('Jadual Pengelasan Excel berjaya dimuat turun');
+  };
+
   return (
     <div className="space-y-8">
       <ConfirmModal
@@ -680,16 +826,30 @@ export default function Dashboard() {
             <FileSpreadsheet size={18} />
             Muat Turun Excel Lampiran B
           </button>
-          <button 
-            onClick={exportLampiranBPDF}
-            disabled={!hasLampiranBData}
-            className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download size={18} />
-            Muat Turun PDF Lampiran B
-          </button>
+            <button 
+              onClick={exportLampiranBPDF}
+              disabled={!hasLampiranBData}
+              className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download size={18} />
+              Muat Turun PDF Lampiran B
+            </button>
+            <button
+              onClick={exportPengelasanExcel}
+              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors"
+            >
+              <FileSpreadsheet size={18} />
+              Muat Turun Excel Jadual Pengelasan
+            </button>
+            <button
+              onClick={exportPengelasanPDF}
+              className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-800 transition-colors"
+            >
+              <Download size={18} />
+              Muat Turun PDF Jadual Pengelasan
+            </button>
+          </div>
         </div>
-      </div>
 
       {/* Filters */}
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">

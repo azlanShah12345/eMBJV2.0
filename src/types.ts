@@ -50,6 +50,28 @@ export interface CategoryStats {
   belum_selesai: number;
 }
 
+export interface PengelasanRow {
+  category: string;
+  previous_selesai_titles: string[];
+  previous_belum_titles: string[];
+  new_selesai_titles: string[];
+  new_belum_titles: string[];
+}
+
+export interface PengelasanReport {
+  department_name: string;
+  meeting_label: string;
+  report_year: number;
+  rows: PengelasanRow[];
+  totals: {
+    previous_selesai: number;
+    previous_belum: number;
+    new_selesai: number;
+    new_belum: number;
+    overall: number;
+  };
+}
+
 export const CATEGORIES = [
   'Kewangan dan Kemudahan',
   'Pentadbiran',

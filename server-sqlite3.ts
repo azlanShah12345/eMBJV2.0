@@ -566,6 +566,114 @@ async function startServer() {
     res.json(stats);
   });
 
+  app.get('/api/reports/pengelasan', authenticate, async (req: any, res) => {
+    let { department_id, bil_mesyuarat, category } = req.query;
+    if (req.user.role !== 'ADMIN') department_id = req.user.department_id;
+
+    let issueQuery = `
+      SELECT i.category, i.is_from_previous, i.title, i.status, i.responsible_officer
+      FROM issues i
+      JOIN meetings m ON i.meeting_id = m.id
+      WHERE m.is_locked = 1
+    `;
+    const params: any[] = [];
+    if (department_id) {
+      issueQuery += ' AND m.department_id = ?';
+      params.push(department_id);
+    }
+    if (bil_mesyuarat) {
+      issueQuery += ' AND m.bil_mesyuarat = ?';
+      params.push(bil_mesyuarat);
+    }
+    if (category) {
+      issueQuery += ' AND i.category = ?';
+      params.push(category);
+    }
+    issueQuery += ' ORDER BY i.category, i.id';
+
+    const [issues, categories, department] = await Promise.all([
+      db.all(issueQuery, ...params),
+      db.all('SELECT name FROM categories ORDER BY id ASC, name ASC'),
+      department_id ? db.get('SELECT name FROM departments WHERE id = ?', department_id) : Promise.resolve(undefined),
+    ]);
+
+    const categoryNames = (category
+      ? [String(category)]
+      : [
+          ...categories.map((row: any) => String(row.name || '').trim()).filter(Boolean),
+          ...Array.from(new Set(issues.map((row: any) => String(row.category || '').trim()).filter(Boolean))),
+        ]
+    ).filter((value, index, array) => array.indexOf(value) === index);
+
+    const rowsMap = new Map<string, {
+      category: string;
+      previous_selesai_titles: string[];
+      previous_belum_titles: string[];
+      new_selesai_titles: string[];
+      new_belum_titles: string[];
+    }>();
+
+    categoryNames.forEach((name) => {
+      rowsMap.set(name, {
+        category: name,
+        previous_selesai_titles: [],
+        previous_belum_titles: [],
+        new_selesai_titles: [],
+        new_belum_titles: [],
+      });
+    });
+
+    issues.forEach((issue: any) => {
+      const categoryName = String(issue.category || '').trim();
+      if (!categoryName) return;
+      const row = rowsMap.get(categoryName) || {
+        category: categoryName,
+        previous_selesai_titles: [],
+        previous_belum_titles: [],
+        new_selesai_titles: [],
+        new_belum_titles: [],
+      };
+      const title = `${String(issue.title || '').trim()}${issue.responsible_officer ? ` (${String(issue.responsible_officer).trim()})` : ''}`.trim();
+      if (Number(issue.is_from_previous) === 1) {
+        if (issue.status === 'Selesai') {
+          row.previous_selesai_titles.push(title);
+        } else {
+          row.previous_belum_titles.push(title);
+        }
+      } else if (issue.status === 'Selesai') {
+        row.new_selesai_titles.push(title);
+      } else {
+        row.new_belum_titles.push(title);
+      }
+      rowsMap.set(categoryName, row);
+    });
+
+    const rows = Array.from(rowsMap.values());
+    const totals = rows.reduce((acc, row) => {
+      acc.previous_selesai += row.previous_selesai_titles.length;
+      acc.previous_belum += row.previous_belum_titles.length;
+      acc.new_selesai += row.new_selesai_titles.length;
+      acc.new_belum += row.new_belum_titles.length;
+      return acc;
+    }, {
+      previous_selesai: 0,
+      previous_belum: 0,
+      new_selesai: 0,
+      new_belum: 0,
+    });
+
+    res.json({
+      department_name: department?.name || 'Semua Jabatan',
+      meeting_label: bil_mesyuarat ? String(bil_mesyuarat) : 'Semua Mesyuarat',
+      report_year: new Date().getFullYear(),
+      rows,
+      totals: {
+        ...totals,
+        overall: totals.previous_selesai + totals.previous_belum + totals.new_selesai + totals.new_belum,
+      },
+    });
+  });
+
   const vite = await createViteServer({
     server: { middlewareMode: true },
     appType: 'spa',

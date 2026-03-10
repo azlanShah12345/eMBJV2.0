@@ -1,4 +1,4 @@
-import { User, Department, Meeting, Issue, CategoryStats } from '../types';
+import { User, Department, Meeting, Issue, CategoryStats, PengelasanReport } from '../types';
 
 const API_BASE = '/api';
 
@@ -169,6 +169,19 @@ export const api = {
       }, {})
     ).toString();
     const res = await fetch(`${API_BASE}/stats?${query}`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getPengelasanReport(params: { department_id?: number; bil_mesyuarat?: string; category?: string }): Promise<PengelasanReport> {
+    const query = new URLSearchParams(
+      Object.entries(params).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          acc[key] = String(value);
+        }
+        return acc;
+      }, {})
+    ).toString();
+    const res = await fetch(`${API_BASE}/reports/pengelasan?${query}`, { headers: getHeaders() });
     return handleResponse(res);
   },
 
