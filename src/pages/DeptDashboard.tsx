@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { Meeting, User } from '../types';
-import { Plus, FileText, Calendar, ChevronRight, Lock, Unlock, Trash2 } from 'lucide-react';
+import { Plus, FileText, Calendar, ChevronRight, Lock, Unlock, FolderArchive, BarChart3, CheckCircle2, Clock3 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../components/Toast';
 
@@ -15,6 +15,7 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [selectedYear, setSelectedYear] = useState('');
 
   // Form state
   const [bil, setBil] = useState('Bil 1');
@@ -25,6 +26,21 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
   useEffect(() => {
     fetchMeetings();
   }, []);
+
+  useEffect(() => {
+    if (meetings.length === 0) return;
+    const availableYears = Array.from<number>(
+      new Set(
+        meetings
+          .map((meeting) => new Date(meeting.tarikh_mesyuarat).getFullYear())
+          .filter((year) => !Number.isNaN(year))
+      )
+    ).sort((a, b) => b - a);
+
+    if (!selectedYear && availableYears.length > 0) {
+      setSelectedYear(String(availableYears[0]));
+    }
+  }, [meetings, selectedYear]);
 
   const fetchMeetings = async () => {
     try {
@@ -63,78 +79,236 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
     }
   };
 
+  const availableYears = Array.from<number>(
+    new Set(
+      meetings
+        .map((meeting) => new Date(meeting.tarikh_mesyuarat).getFullYear())
+        .filter((year) => !Number.isNaN(year))
+    )
+  ).sort((a, b) => b - a);
+
+  const filteredMeetings = meetings.filter((meeting) => {
+    if (!selectedYear) return true;
+    return String(new Date(meeting.tarikh_mesyuarat).getFullYear()) === selectedYear;
+  });
+
+  const submittedMeetings = filteredMeetings.filter((meeting) => meeting.is_locked === 1);
+  const draftMeetings = filteredMeetings.filter((meeting) => meeting.is_locked !== 1);
+  const totalIssues = filteredMeetings.reduce((sum, meeting) => sum + Number(meeting.total_issues || 0), 0);
+  const completedIssues = filteredMeetings.reduce((sum, meeting) => sum + Number(meeting.completed_issues || 0), 0);
+  const pendingIssues = Math.max(0, totalIssues - completedIssues);
+  const completionRate = totalIssues > 0 ? (completedIssues / totalIssues) * 100 : 0;
+  const yearSummary = availableYears.map((year) => {
+    const yearlyMeetings = meetings.filter((meeting) => new Date(meeting.tarikh_mesyuarat).getFullYear() === year);
+    const yearlySubmitted = yearlyMeetings.filter((meeting) => meeting.is_locked === 1);
+    const yearlyIssues = yearlyMeetings.reduce((sum, meeting) => sum + Number(meeting.total_issues || 0), 0);
+    return {
+      year,
+      reports: yearlyMeetings.length,
+      submitted: yearlySubmitted.length,
+      issues: yearlyIssues,
+    };
+  });
+
   return (
     <div className="space-y-8">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Rekod Mesyuarat</h2>
-          <p className="text-slate-500">Urus dan pantau mesyuarat MBJ jabatan anda.</p>
+          <p className="text-slate-500">Urus, semak, dan jejak laporan serta isu MBJ jabatan anda mengikut tahun.</p>
         </div>
-        <button 
-          onClick={() => setIsModalOpen(true)}
-          className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-emerald-600/10"
-        >
-          <Plus size={20} />
-          Mesyuarat Baharu
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="min-w-[180px]">
+            <label className="mb-1 block text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Tahun Rekod</label>
+            <select
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              {availableYears.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsModalOpen(true)}
+            className="mt-5 flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white shadow-lg shadow-emerald-600/10 transition-colors hover:bg-emerald-700 lg:mt-0"
+          >
+            <Plus size={20} />
+            Mesyuarat Baharu
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Laporan Tahun {selectedYear}</p>
+              <p className="mt-3 text-3xl font-black text-slate-900">{filteredMeetings.length}</p>
+              <p className="mt-2 text-sm text-slate-500">Termasuk draf dan laporan dihantar</p>
+            </div>
+            <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
+              <FolderArchive size={22} />
+            </div>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Dihantar Ke HQ</p>
+              <p className="mt-3 text-3xl font-black text-slate-900">{submittedMeetings.length}</p>
+              <p className="mt-2 text-sm text-slate-500">Rekod rasmi untuk tahun dipilih</p>
+            </div>
+            <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
+              <CheckCircle2 size={22} />
+            </div>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Jumlah Isu</p>
+              <p className="mt-3 text-3xl font-black text-slate-900">{totalIssues}</p>
+              <p className="mt-2 text-sm text-slate-500">{completedIssues} selesai, {pendingIssues} belum selesai</p>
+            </div>
+            <div className="rounded-2xl bg-amber-50 p-3 text-amber-600">
+              <Clock3 size={22} />
+            </div>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Kadar Penyelesaian</p>
+              <p className="mt-3 text-3xl font-black text-slate-900">{completionRate.toFixed(1)}%</p>
+              <p className="mt-2 text-sm text-slate-500">Berdasarkan isu dalam tahun dipilih</p>
+            </div>
+            <div className="rounded-2xl bg-slate-100 p-3 text-slate-700">
+              <BarChart3 size={22} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Arkib Tahunan</h3>
+            <p className="mt-1 text-sm text-slate-500">Ringkasan rekod jabatan untuk memudahkan semakan apabila penggunaan sistem melangkau tahun.</p>
+          </div>
+          <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.24em] text-slate-500">
+            {availableYears.length} tahun
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {yearSummary.map((item) => (
+            <button
+              key={item.year}
+              type="button"
+              onClick={() => setSelectedYear(String(item.year))}
+              className={`rounded-2xl border p-4 text-left transition-colors ${String(item.year) === selectedYear ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-slate-50 hover:bg-white'}`}
+            >
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Tahun {item.year}</p>
+              <p className="mt-3 text-2xl font-black text-slate-900">{item.reports}</p>
+              <p className="mt-2 text-sm text-slate-500">{item.submitted} dihantar ke HQ | {item.issues} isu</p>
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading ? (
         <div className="text-center py-12">Sedang memuatkan mesyuarat...</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {meetings.map((meeting) => (
-            <Link 
-              key={meeting.id} 
-              to={`/meeting/${meeting.id}`}
-              className="bg-white border border-slate-200 rounded-2xl p-6 hover:shadow-xl hover:border-emerald-200 transition-all group relative overflow-hidden"
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-colors">
-                  <FileText size={24} />
+        <div className="space-y-8">
+          {[
+            { title: 'Laporan Dihantar Ke HQ', subtitle: 'Rekod yang telah diserahkan sebagai rujukan rasmi HQ.', data: submittedMeetings, tone: 'emerald' },
+            { title: 'Draf Dan Dalam Tindakan', subtitle: 'Rekod yang masih aktif untuk dikemas kini oleh jabatan.', data: draftMeetings, tone: 'slate' },
+          ].map((section) => (
+            <div key={section.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">{section.title}</h3>
+                  <p className="mt-1 text-sm text-slate-500">{section.subtitle}</p>
                 </div>
-                {meeting.is_locked ? (
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="flex items-center gap-1 text-xs font-bold text-amber-600 bg-amber-50 px-2 py-1 rounded-full uppercase tracking-wider">
-                      <Lock size={12} /> Dikunci
-                    </span>
-                    {meeting.unlock_requested === 1 && (
-                      <span className="text-[10px] font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full uppercase tracking-wider">
-                        Permohonan Buka Kunci
-                      </span>
-                    )}
-                  </div>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-full uppercase tracking-wider">
-                    <Unlock size={12} /> Aktif
-                  </span>
-                )}
+                <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.24em] text-slate-500">
+                  {section.data.length} rekod
+                </div>
               </div>
-              
-              <h3 className="text-xl font-bold text-slate-800 mb-1">{meeting.bil_mesyuarat}</h3>
-              <div className="flex items-center gap-2 text-sm text-slate-500 mb-4">
-                <Calendar size={14} />
-                {new Date(meeting.tarikh_mesyuarat).toLocaleDateString('ms-MY')}
-              </div>
+              {section.data.length === 0 ? (
+                <div className="rounded-2xl bg-slate-50 p-6 text-sm italic text-slate-400">
+                  Tiada rekod untuk tahun {selectedYear} dalam seksyen ini.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+                  {section.data.map((meeting) => (
+                    <Link 
+                      key={meeting.id} 
+                      to={`/meeting/${meeting.id}`}
+                      className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 transition-all hover:border-emerald-200 hover:shadow-xl"
+                    >
+                      <div className="mb-4 flex items-start justify-between">
+                        <div className={`rounded-xl p-3 transition-colors ${section.tone === 'emerald' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-slate-100 text-slate-700 group-hover:bg-slate-800 group-hover:text-white'}`}>
+                          <FileText size={24} />
+                        </div>
+                        {meeting.is_locked ? (
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-amber-600">
+                              <Lock size={12} /> Dalam Rekod HQ
+                            </span>
+                            {meeting.unlock_requested === 1 && (
+                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
+                                Permohonan Buka Kunci
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-emerald-600">
+                            <Unlock size={12} /> Dalam Tindakan
+                          </span>
+                        )}
+                      </div>
+                      
+                      <h3 className="mb-1 text-xl font-bold text-slate-800">{meeting.bil_mesyuarat}</h3>
+                      <div className="mb-4 flex items-center gap-2 text-sm text-slate-500">
+                        <Calendar size={14} />
+                        {new Date(meeting.tarikh_mesyuarat).toLocaleDateString('ms-MY')}
+                      </div>
 
-              <div className="space-y-3">
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div 
-                    className="bg-emerald-500 h-full transition-all duration-500" 
-                    style={{ width: `${meeting.total_issues ? (meeting.completed_issues / meeting.total_issues) * 100 : 0}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-xs font-semibold">
-                  <span className="text-slate-500">{meeting.total_issues} Jumlah Isu</span>
-                  <span className="text-emerald-600">{meeting.completed_issues} Selesai</span>
-                </div>
-              </div>
+                      <div className="space-y-3">
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                          <div 
+                            className="h-full bg-emerald-500 transition-all duration-500" 
+                            style={{ width: `${meeting.total_issues ? (meeting.completed_issues / meeting.total_issues) * 100 : 0}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span className="text-slate-500">{meeting.total_issues} jumlah isu</span>
+                          <span className="text-emerald-600">{meeting.completed_issues} selesai</span>
+                        </div>
+                      </div>
 
-              <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-emerald-600 font-semibold text-sm">
-                Lihat Butiran
-                <ChevronRight size={18} className="transform group-hover:translate-x-1 transition-transform" />
-              </div>
-            </Link>
+                      <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-xs">
+                        <div>
+                          <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Tahun</p>
+                          <p className="mt-1 font-semibold text-slate-700">{new Date(meeting.tarikh_mesyuarat).getFullYear()}</p>
+                        </div>
+                        <div>
+                          <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Kaedah</p>
+                          <p className="mt-1 font-semibold text-slate-700">{meeting.submission_method || '-'}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 text-sm font-semibold text-emerald-600">
+                        Lihat Butiran
+                        <ChevronRight size={18} className="transform transition-transform group-hover:translate-x-1" />
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
           ))}
         </div>
       )}
