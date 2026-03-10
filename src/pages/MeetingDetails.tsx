@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { Issue, CATEGORIES, User } from '../types';
-import { ArrowLeft, Plus, Trash2, CheckCircle2, Circle, Lock, Download, FileText, XCircle, AlertTriangle, X } from 'lucide-react';
+import { Issue, MeetingMessage, User } from '../types';
+import { ArrowLeft, Plus, Trash2, CheckCircle2, Circle, Lock, Download, FileText, XCircle, AlertTriangle, Send, MessageSquare } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
 
@@ -15,6 +15,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   const navigate = useNavigate();
   const { showToast } = useToast();
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [messages, setMessages] = useState<MeetingMessage[]>([]);
   const [meeting, setMeeting] = useState<any>(null);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -24,6 +25,8 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLocking, setIsLocking] = useState(false);
   const [isRequesting, setIsRequesting] = useState(false);
+  const [isSendingMessage, setIsSendingMessage] = useState(false);
+  const [newMessage, setNewMessage] = useState('');
 
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -51,16 +54,29 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     fetchData();
   }, [id]);
 
+  useEffect(() => {
+    if (!id) return undefined;
+
+    const intervalId = window.setInterval(() => {
+      fetchMessages();
+    }, 15000);
+
+    return () => window.clearInterval(intervalId);
+  }, [id]);
+
   const fetchData = async () => {
     try {
-      const [meetingData, issuesData, categoriesData] = await Promise.all([
+      const [meetingData, issuesData, categoriesData, messagesData] = await Promise.all([
         api.getMeeting(Number(id)),
         api.getIssues(Number(id)),
-        api.getCategories()
+        api.getCategories(),
+        api.getMeetingMessages(Number(id)),
       ]);
       setMeeting(meetingData);
       setIssues(issuesData);
       setCategories(categoriesData);
+      setMessages(messagesData);
+      await api.markMeetingMessagesRead(Number(id));
       if (categoriesData.length > 0 && !newIssue.category) {
         setNewIssue(prev => ({ ...prev, category: categoriesData[0].name }));
       }
@@ -68,6 +84,17 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchMessages = async () => {
+    if (!id) return;
+    try {
+      const data = await api.getMeetingMessages(Number(id));
+      setMessages(data);
+      await api.markMeetingMessagesRead(Number(id));
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -84,10 +111,10 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
         status: 'Belum Selesai',
         responsible_officer: ''
       });
-      showToast('Issue added successfully');
+      showToast('Isu berjaya ditambah');
       fetchData();
     } catch (err) {
-      showToast('Failed to add issue', 'error');
+      showToast('Gagal menambah isu', 'error');
     } finally {
       setIsAddingIssue(false);
     }
@@ -98,10 +125,10 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     const newStatus = issue.status === 'Selesai' ? 'Belum Selesai' : 'Selesai';
     try {
       await api.updateIssue(issue.id, { status: newStatus });
-      showToast(`Status updated to ${newStatus}`);
+      showToast(`Status isu dikemas kini kepada ${newStatus}`);
       fetchData();
     } catch (err) {
-      showToast('Failed to update status', 'error');
+      showToast('Gagal mengemas kini status', 'error');
     }
   };
 
@@ -111,16 +138,16 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     setConfirmConfig({
       isOpen: true,
       title: 'Hapus Isu',
-      message: 'Are you sure you want to delete this issue?',
+      message: 'Adakah anda pasti mahu menghapuskan isu ini?',
       isDanger: true,
       onConfirm: async () => {
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         try {
           await api.deleteIssue(issueId);
-          showToast('Issue deleted successfully');
+          showToast('Isu berjaya dihapuskan');
           fetchData();
         } catch (err) {
-          showToast('Failed to delete issue', 'error');
+          showToast('Gagal menghapuskan isu', 'error');
         }
       }
     });
@@ -130,7 +157,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     setConfirmConfig({
       isOpen: true,
       title: 'Kunci Rekod',
-      message: 'Locking this meeting will prevent further edits. Proceed?',
+      message: 'Mengunci rekod ini akan menghalang sebarang suntingan lanjut. Teruskan?',
       onConfirm: async () => {
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         setIsLocking(true);
@@ -139,7 +166,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
           showToast('Rekod mesyuarat berjaya dikunci');
           fetchData();
         } catch (err: any) {
-          showToast(err.message || 'Failed to lock meeting', 'error');
+          showToast(err.message || 'Gagal mengunci mesyuarat', 'error');
         } finally {
           setIsLocking(false);
         }
@@ -157,7 +184,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     setConfirmConfig({
       isOpen: true,
       title: 'Hantar ke HQ',
-      message: 'Submit this report to HQ? You will not be able to edit it without permission.',
+      message: 'Hantar laporan ini ke HQ? Anda tidak boleh menyuntingnya semula tanpa kebenaran.',
       onConfirm: async () => {
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         setIsSubmitting(true);
@@ -321,6 +348,27 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     });
   };
 
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmedMessage = newMessage.trim();
+    if (!trimmedMessage) {
+      showToast('Mesej tidak boleh kosong', 'error');
+      return;
+    }
+
+    try {
+      setIsSendingMessage(true);
+      await api.addMeetingMessage(Number(id), trimmedMessage);
+      setNewMessage('');
+      await fetchMessages();
+      showToast('Mesej berjaya dihantar');
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menghantar mesej', 'error');
+    } finally {
+      setIsSendingMessage(false);
+    }
+  };
+
   if (loading) return <div className="text-center py-12">Sedang memuatkan butiran...</div>;
   if (!meeting) return <div className="text-center py-12">Mesyuarat tidak ditemui.</div>;
 
@@ -359,11 +407,11 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <button 
-          onClick={() => navigate('/')}
+          onClick={() => navigate(user.role === 'ADMIN' ? '/' : '/meetings')}
           className="flex items-center gap-2 text-slate-500 hover:text-slate-800 transition-colors"
         >
           <ArrowLeft size={20} />
-          Kembali ke Papan Pemuka
+          {user.role === 'ADMIN' ? 'Kembali ke Papan Pemuka' : 'Kembali ke Menu Mesyuarat'}
         </button>
         <div className="flex gap-3">
           {user.role === 'ADMIN' && meeting.unlock_requested === 1 && (
@@ -564,6 +612,79 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
           </div>
         </div>
 
+        <div className="mb-8 rounded-2xl border border-slate-100 bg-slate-50 p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Perbualan Mesyuarat</p>
+              <h3 className="mt-2 flex items-center gap-2 text-lg font-bold text-slate-900">
+                <MessageSquare size={20} className="text-emerald-600" />
+                Ruang komunikasi jabatan dan HQ
+              </h3>
+              <p className="mt-1 text-sm text-slate-500">Gunakan ruang ini untuk penjelasan, arahan susulan, atau maklum balas berkaitan rekod mesyuarat ini.</p>
+            </div>
+            <div className="rounded-full bg-white px-3 py-1 text-xs font-bold uppercase tracking-[0.2em] text-slate-600 ring-1 ring-slate-200">
+              {messages.length} mesej
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white">
+            <div className="max-h-[360px] space-y-4 overflow-y-auto p-5">
+              {messages.length === 0 ? (
+                <div className="rounded-2xl bg-slate-50 p-5 text-sm italic text-slate-400">
+                  Belum ada mesej. Mulakan perbualan berkaitan rekod mesyuarat ini.
+                </div>
+              ) : (
+                messages.map((message) => {
+                  const isOwnMessage = Number(message.user_id) === Number(user.id);
+                  const isAdminMessage = message.user_role === 'ADMIN';
+
+                  return (
+                    <div key={message.id} className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-3xl rounded-2xl px-4 py-3 shadow-sm ${isOwnMessage ? 'bg-emerald-600 text-white' : 'bg-slate-50 text-slate-800 ring-1 ring-slate-200'}`}>
+                        <div className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] ${isOwnMessage ? 'text-emerald-100' : isAdminMessage ? 'text-indigo-600' : 'text-slate-500'}`}>
+                          <span>{message.username}</span>
+                          <span>{isAdminMessage ? 'HQ' : (message.department_name || 'Jabatan')}</span>
+                          <span className={isOwnMessage ? 'text-emerald-100/80' : 'text-slate-400'}>
+                            {new Date(message.created_at).toLocaleString('ms-MY', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
+                        </div>
+                        <p className={`whitespace-pre-wrap text-sm leading-6 ${isOwnMessage ? 'text-white' : 'text-slate-700'}`}>{message.message}</p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <form onSubmit={handleSendMessage} className="border-t border-slate-200 p-5">
+              <label className="mb-2 block text-sm font-semibold text-slate-700">Mesej Baharu</label>
+              <div className="flex flex-col gap-3 lg:flex-row">
+                <textarea
+                  rows={3}
+                  value={newMessage}
+                  onChange={(e) => setNewMessage(e.target.value)}
+                  className="min-h-[88px] flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-500"
+                  placeholder="Tulis maklum balas atau arahan berkaitan mesyuarat ini..."
+                />
+                <button
+                  type="submit"
+                  disabled={isSendingMessage}
+                  className="flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 px-5 py-3 font-bold text-white transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 lg:self-end"
+                >
+                  <Send size={18} />
+                  {isSendingMessage ? 'Sedang hantar...' : 'Hantar Mesej'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
         <div className="overflow-hidden border border-slate-100 rounded-xl">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -643,7 +764,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden">
             <div className="bg-slate-800 p-6 text-white">
               <h3 className="text-xl font-bold">Tambah Isu Mesyuarat</h3>
-              <p className="text-slate-400 text-sm">Record a new issue discussed during the meeting.</p>
+              <p className="text-slate-400 text-sm">Rekod isu baharu yang dibincangkan dalam mesyuarat ini.</p>
             </div>
             <form onSubmit={handleAddIssue} className="p-8 space-y-6">
               <div className="grid grid-cols-2 gap-6">
@@ -664,7 +785,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                     value={newIssue.responsible_officer}
                     onChange={(e) => setNewIssue({...newIssue, responsible_officer: e.target.value})}
                     className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
-                    placeholder="e.g. Ahmad bin Ali"
+                    placeholder="Contoh: Ahmad bin Ali"
                   />
                 </div>
               </div>
@@ -677,7 +798,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                   value={newIssue.title}
                   onChange={(e) => setNewIssue({...newIssue, title: e.target.value})}
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Describe the issue or decision made..."
+                  placeholder="Nyatakan isu atau keputusan yang dibincangkan..."
                 />
               </div>
 

@@ -1,4 +1,4 @@
-import { User, Department, Meeting, Issue, CategoryStats, PengelasanReport } from '../types';
+import { User, Department, Meeting, Issue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary } from '../types';
 
 const API_BASE = '/api';
 
@@ -67,6 +67,33 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(issue),
     });
+    return handleResponse(res);
+  },
+
+  async getMeetingMessages(meetingId: number): Promise<MeetingMessage[]> {
+    const res = await fetch(`${API_BASE}/meetings/${meetingId}/messages`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async addMeetingMessage(meetingId: number, message: string): Promise<{ id: number }> {
+    const res = await fetch(`${API_BASE}/meetings/${meetingId}/messages`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({ message }),
+    });
+    return handleResponse(res);
+  },
+
+  async markMeetingMessagesRead(meetingId: number) {
+    const res = await fetch(`${API_BASE}/meetings/${meetingId}/messages/read`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  async getMeetingMessageUnreadSummary(): Promise<MeetingMessageUnreadSummary> {
+    const res = await fetch(`${API_BASE}/messages/unread-summary`, { headers: getHeaders() });
     return handleResponse(res);
   },
 

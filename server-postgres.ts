@@ -114,6 +114,21 @@ const bootstrapDatabase = async () => {
       responsible_officer TEXT,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+
+    CREATE TABLE IF NOT EXISTS meeting_messages (
+      id SERIAL PRIMARY KEY,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS meeting_message_reads (
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      meeting_id INTEGER NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+      last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, meeting_id)
+    );
   `);
 
   await query(`
@@ -127,6 +142,8 @@ const bootstrapDatabase = async () => {
     ALTER TABLE issues ADD COLUMN IF NOT EXISTS is_from_previous INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE issues ADD COLUMN IF NOT EXISTS responsible_officer TEXT;
     ALTER TABLE issues ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE meeting_messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE meeting_message_reads ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
 
   const defaultDepartments = ['HQ', 'IT', 'HR', 'FINANCE'];
@@ -498,6 +515,131 @@ async function startServer() {
     );
 
     res.json({ id: result.rows[0].id });
+  });
+
+  app.get('/api/meetings/:id/messages', authenticate, async (req: any, res) => {
+    const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
+    const meeting = meetingResult.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const result = await query(`
+      SELECT
+        mm.id,
+        mm.meeting_id,
+        mm.user_id,
+        mm.message,
+        mm.created_at,
+        u.username,
+        u.role AS user_role,
+        d.name AS department_name
+      FROM meeting_messages mm
+      JOIN users u ON u.id = mm.user_id
+      LEFT JOIN departments d ON d.id = u.department_id
+      WHERE mm.meeting_id = $1
+      ORDER BY mm.created_at ASC, mm.id ASC
+    `, [req.params.id]);
+
+    res.json(result.rows);
+  });
+
+  app.post('/api/meetings/:id/messages', authenticate, async (req: any, res) => {
+    const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
+    const meeting = meetingResult.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const message = String(req.body.message || '').trim();
+    if (!message) {
+      return res.status(400).json({ error: 'Mesej tidak boleh kosong' });
+    }
+
+    const result = await query(
+      'INSERT INTO meeting_messages (meeting_id, user_id, message) VALUES ($1, $2, $3) RETURNING id',
+      [req.params.id, req.user.id, message]
+    );
+    res.json({ id: result.rows[0].id });
+  });
+
+  app.post('/api/meetings/:id/messages/read', authenticate, async (req: any, res) => {
+    const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
+    const meeting = meetingResult.rows[0] as any;
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    await query(`
+      INSERT INTO meeting_message_reads (user_id, meeting_id, last_read_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (user_id, meeting_id)
+      DO UPDATE SET last_read_at = EXCLUDED.last_read_at
+    `, [req.user.id, req.params.id]);
+
+    res.json({ success: true });
+  });
+
+  app.get('/api/messages/unread-summary', authenticate, async (req: any, res) => {
+    const params: any[] = [req.user.id];
+    const departmentFilter = req.user.role === 'ADMIN' ? '' : 'AND m.department_id = $2';
+    if (req.user.role !== 'ADMIN') {
+      params.push(Number(req.user.department_id));
+    }
+
+    const result = await query(`
+      WITH per_message AS (
+        SELECT
+          mm.id,
+          mm.meeting_id,
+          mm.message,
+          mm.created_at,
+          m.bil_mesyuarat,
+          d.name AS department_name,
+          COALESCE(mmr.last_read_at, TO_TIMESTAMP(0)) AS last_read_at,
+          ROW_NUMBER() OVER (PARTITION BY mm.meeting_id ORDER BY mm.created_at DESC, mm.id DESC) AS rn
+        FROM meeting_messages mm
+        JOIN meetings m ON m.id = mm.meeting_id
+        JOIN departments d ON d.id = m.department_id
+        LEFT JOIN meeting_message_reads mmr
+          ON mmr.meeting_id = mm.meeting_id
+          AND mmr.user_id = $1
+        WHERE mm.user_id <> $1
+          ${departmentFilter}
+      ),
+      unread_group AS (
+        SELECT
+          meeting_id,
+          bil_mesyuarat,
+          department_name,
+          COUNT(*) FILTER (WHERE created_at > last_read_at) AS unread_count,
+          MAX(created_at) AS last_message_at,
+          MAX(CASE WHEN rn = 1 THEN LEFT(message, 120) END) AS last_message_preview
+        FROM per_message
+        GROUP BY meeting_id, bil_mesyuarat, department_name
+      )
+      SELECT *
+      FROM unread_group
+      WHERE unread_count > 0
+      ORDER BY last_message_at DESC
+    `, params);
+
+    const items = result.rows.map((row: any) => ({
+      meeting_id: Number(row.meeting_id),
+      bil_mesyuarat: row.bil_mesyuarat,
+      department_name: row.department_name,
+      unread_count: Number(row.unread_count || 0),
+      last_message_at: row.last_message_at,
+      last_message_preview: row.last_message_preview || '',
+    }));
+
+    res.json({
+      total_unread: items.reduce((sum: number, item: any) => sum + item.unread_count, 0),
+      items,
+    });
   });
 
   app.patch('/api/issues/:id', authenticate, async (req: any, res) => {

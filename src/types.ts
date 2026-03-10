@@ -43,6 +43,31 @@ export interface Issue {
   updated_at: string;
 }
 
+export interface MeetingMessage {
+  id: number;
+  meeting_id: number;
+  user_id: number;
+  username: string;
+  user_role: 'ADMIN' | 'USER';
+  department_name: string | null;
+  message: string;
+  created_at: string;
+}
+
+export interface MeetingMessageUnreadItem {
+  meeting_id: number;
+  bil_mesyuarat: string;
+  department_name: string;
+  unread_count: number;
+  last_message_at: string;
+  last_message_preview: string;
+}
+
+export interface MeetingMessageUnreadSummary {
+  total_unread: number;
+  items: MeetingMessageUnreadItem[];
+}
+
 export interface CategoryStats {
   category: string;
   total: number;

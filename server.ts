@@ -87,6 +87,25 @@ async function startServer() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL UNIQUE
     );
+
+    CREATE TABLE IF NOT EXISTS meeting_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      meeting_id INTEGER NOT NULL,
+      user_id INTEGER NOT NULL,
+      message TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS meeting_message_reads (
+      user_id INTEGER NOT NULL,
+      meeting_id INTEGER NOT NULL,
+      last_read_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (user_id, meeting_id),
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
+    );
   `);
 
   // Ensure columns exist (for existing databases) - DO THIS BEFORE MIGRATION
@@ -414,6 +433,133 @@ async function startServer() {
       VALUES (?, ?, ?, ?)
     `).run(req.params.id, category, title, status);
     res.json({ id: result.lastInsertRowid });
+  }));
+
+  app.get('/api/meetings/:id/messages', authenticate, catchErrors((req: any, res: any) => {
+    const meeting = db.prepare('SELECT id, department_id FROM meetings WHERE id = ?').get(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const messages = db.prepare(`
+      SELECT
+        mm.id,
+        mm.meeting_id,
+        mm.user_id,
+        mm.message,
+        mm.created_at,
+        u.username,
+        u.role as user_role,
+        d.name as department_name
+      FROM meeting_messages mm
+      JOIN users u ON u.id = mm.user_id
+      LEFT JOIN departments d ON d.id = u.department_id
+      WHERE mm.meeting_id = ?
+      ORDER BY mm.created_at ASC, mm.id ASC
+    `).all(req.params.id);
+
+    res.json(messages);
+  }));
+
+  app.post('/api/meetings/:id/messages', authenticate, catchErrors((req: any, res: any) => {
+    const meeting = db.prepare('SELECT id, department_id FROM meetings WHERE id = ?').get(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const message = String(req.body.message || '').trim();
+    if (!message) {
+      return res.status(400).json({ error: 'Mesej tidak boleh kosong' });
+    }
+
+    const result = db.prepare(`
+      INSERT INTO meeting_messages (meeting_id, user_id, message)
+      VALUES (?, ?, ?)
+    `).run(req.params.id, req.user.id, message);
+    res.json({ id: result.lastInsertRowid });
+  }));
+
+  app.post('/api/meetings/:id/messages/read', authenticate, catchErrors((req: any, res: any) => {
+    const meeting = db.prepare('SELECT id, department_id FROM meetings WHERE id = ?').get(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    db.prepare(`
+      INSERT INTO meeting_message_reads (user_id, meeting_id, last_read_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(user_id, meeting_id) DO UPDATE SET last_read_at = CURRENT_TIMESTAMP
+    `).run(req.user.id, req.params.id);
+
+    res.json({ success: true });
+  }));
+
+  app.get('/api/messages/unread-summary', authenticate, catchErrors((req: any, res: any) => {
+    const queryParams: any[] = [req.user.id, req.user.id, req.user.id];
+    let departmentFilter = '';
+    if (req.user.role !== 'ADMIN') {
+      departmentFilter = 'AND m.department_id = ?';
+      queryParams.push(Number(req.user.department_id));
+    }
+
+    const items = db.prepare(`
+      WITH latest_messages AS (
+        SELECT
+          mm.meeting_id,
+          mm.message,
+          mm.created_at,
+          ROW_NUMBER() OVER (PARTITION BY mm.meeting_id ORDER BY mm.created_at DESC, mm.id DESC) AS rn
+        FROM meeting_messages mm
+        WHERE mm.user_id <> ?
+      ),
+      unread_counts AS (
+        SELECT
+          mm.meeting_id,
+          m.bil_mesyuarat,
+          d.name AS department_name,
+          COUNT(*) AS unread_count,
+          MAX(mm.created_at) AS last_message_at
+        FROM meeting_messages mm
+        JOIN meetings m ON m.id = mm.meeting_id
+        JOIN departments d ON d.id = m.department_id
+        LEFT JOIN meeting_message_reads mmr
+          ON mmr.meeting_id = mm.meeting_id
+          AND mmr.user_id = ?
+        WHERE mm.user_id <> ?
+          AND datetime(mm.created_at) > datetime(COALESCE(mmr.last_read_at, '1970-01-01 00:00:00'))
+          ${departmentFilter}
+        GROUP BY mm.meeting_id, m.bil_mesyuarat, d.name
+      )
+      SELECT
+        uc.meeting_id,
+        uc.bil_mesyuarat,
+        uc.department_name,
+        uc.unread_count,
+        uc.last_message_at,
+        COALESCE(lm.message, '') AS last_message_preview
+      FROM unread_counts uc
+      LEFT JOIN latest_messages lm
+        ON lm.meeting_id = uc.meeting_id
+        AND lm.rn = 1
+      ORDER BY datetime(uc.last_message_at) DESC
+    `).all(...queryParams);
+
+    const normalizedItems = items.map((item: any) => ({
+      meeting_id: Number(item.meeting_id),
+      bil_mesyuarat: item.bil_mesyuarat,
+      department_name: item.department_name,
+      unread_count: Number(item.unread_count || 0),
+      last_message_at: item.last_message_at,
+      last_message_preview: String(item.last_message_preview || '').slice(0, 120),
+    }));
+
+    res.json({
+      total_unread: normalizedItems.reduce((sum: number, item: any) => sum + item.unread_count, 0),
+      items: normalizedItems,
+    });
   }));
 
   app.patch('/api/issues/:id', authenticate, catchErrors((req: any, res: any) => {
