@@ -35,6 +35,9 @@ export default function Dashboard() {
   const [deptId, setDeptId] = useState('');
   const [bil, setBil] = useState('');
   const [category, setCategory] = useState('');
+  const [showExports, setShowExports] = useState(false);
+  const [showOperationalQueue, setShowOperationalQueue] = useState(false);
+  const [showAdvancedAnalytics, setShowAdvancedAnalytics] = useState(false);
   const statsRequestRef = useRef(0);
 
   const normalizeCategoryLabel = (value: unknown) => {
@@ -452,6 +455,7 @@ export default function Dashboard() {
       accent: 'slate',
     },
   ] as const;
+  const totalPendingRequests = pendingUnlocks.length + pendingDeletes.length;
 
   const exportLampiranAPDF = () => {
     if (!hasLampiranAData) {
@@ -856,53 +860,78 @@ export default function Dashboard() {
         </div>
 
         <div className="mt-6 flex flex-wrap gap-3">
-          <button 
-            onClick={exportLampiranAExcel}
-            disabled={!hasLampiranAData}
-            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          <button
+            type="button"
+            onClick={() => setShowExports((value) => !value)}
+            className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
           >
-            <FileSpreadsheet size={18} />
-            Muat Turun Excel Lampiran A
+            {showExports ? 'Sembunyikan Panel Muat Turun' : 'Buka Panel Muat Turun'}
           </button>
-          <button 
-            onClick={exportLampiranAPDF}
-            disabled={!hasLampiranAData}
-            className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          <button
+            type="button"
+            onClick={() => setShowOperationalQueue((value) => !value)}
+            className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
-            <Download size={18} />
-            Muat Turun PDF Lampiran A
+            {showOperationalQueue ? 'Sembunyikan Permohonan' : `Lihat Permohonan (${totalPendingRequests})`}
           </button>
-          <button 
-            onClick={exportLampiranBExcel}
-            disabled={!hasLampiranBData}
-            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          <button
+            type="button"
+            onClick={() => setShowAdvancedAnalytics((value) => !value)}
+            className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
           >
-            <FileSpreadsheet size={18} />
-            Muat Turun Excel Lampiran B
+            {showAdvancedAnalytics ? 'Sembunyikan Analitik Lanjutan' : 'Buka Analitik Lanjutan'}
           </button>
+        </div>
+        {showExports && (
+          <div className="mt-4 grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-3">
+            <button 
+              onClick={exportLampiranAExcel}
+              disabled={!hasLampiranAData}
+              className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 font-medium text-slate-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FileSpreadsheet size={18} />
+              Excel Lampiran A
+            </button>
+            <button 
+              onClick={exportLampiranAPDF}
+              disabled={!hasLampiranAData}
+              className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-3 font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download size={18} />
+              PDF Lampiran A
+            </button>
+            <button 
+              onClick={exportLampiranBExcel}
+              disabled={!hasLampiranBData}
+              className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 font-medium text-slate-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <FileSpreadsheet size={18} />
+              Excel Lampiran B
+            </button>
             <button 
               onClick={exportLampiranBPDF}
               disabled={!hasLampiranBData}
-              className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-3 font-medium text-white transition-colors hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download size={18} />
-              Muat Turun PDF Lampiran B
+              PDF Lampiran B
             </button>
             <button
               onClick={exportPengelasanExcel}
-              className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 transition-colors"
+              className="flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 font-medium text-slate-700 transition-colors hover:bg-white"
             >
               <FileSpreadsheet size={18} />
-              Muat Turun Excel Jadual Pengelasan
+              Excel Jadual Pengelasan
             </button>
             <button
               onClick={exportPengelasanPDF}
-              className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-slate-800 transition-colors"
+              className="flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-3 font-medium text-white transition-colors hover:bg-slate-800"
             >
               <Download size={18} />
-              Muat Turun PDF Jadual Pengelasan
+              PDF Jadual Pengelasan
             </button>
           </div>
+        )}
         </div>
 
       {/* Filters */}
@@ -1012,7 +1041,7 @@ export default function Dashboard() {
       </div>
 
       {/* Pending Requests */}
-      {(pendingUnlocks.length > 0 || pendingDeletes.length > 0) && (
+      {showOperationalQueue && (pendingUnlocks.length > 0 || pendingDeletes.length > 0) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {pendingUnlocks.length > 0 && (
             <div className="bg-indigo-50 border border-indigo-100 rounded-2xl p-6">
@@ -1114,6 +1143,7 @@ export default function Dashboard() {
         })}
       </div>
 
+      {showAdvancedAnalytics && (
       <div className="rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.08),_transparent_35%),linear-gradient(135deg,#ffffff_0%,#f8fafc_100%)] p-6 shadow-sm">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-2xl">
@@ -1154,8 +1184,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      )}
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.95fr]">
+      <div className={`grid grid-cols-1 gap-6 ${showAdvancedAnalytics ? 'xl:grid-cols-[1.35fr_0.95fr]' : ''}`}>
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
@@ -1219,6 +1250,7 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {showAdvancedAnalytics && (
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center gap-2">
             <Building2 className="text-slate-700" size={18} />
@@ -1254,8 +1286,10 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+        )}
       </div>
 
+      {showAdvancedAnalytics && (
       <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -1355,6 +1389,7 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+      )}
 
       {category && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-6 shadow-sm">
@@ -1478,6 +1513,7 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {showAdvancedAnalytics && (
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3">
@@ -1572,6 +1608,7 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }
