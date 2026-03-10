@@ -644,15 +644,21 @@ export default function Dashboard() {
 
     try {
       const doc = new jsPDF({ orientation: 'landscape' }) as any;
-      doc.setFontSize(13);
-      doc.text('JADUAL PENGELASAN DAN PENYELESAIAN ISU', 14, 18);
+      doc.setFillColor(15, 23, 42);
+      doc.roundedRect(12, 10, 273, 18, 4, 4, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(15);
+      doc.text('JADUAL PENGELASAN DAN PENYELESAIAN ISU', 18, 21);
+      doc.setTextColor(51, 65, 85);
+      doc.setFillColor(240, 249, 255);
+      doc.roundedRect(12, 32, 273, 16, 3, 3, 'F');
       doc.setFontSize(10);
-      doc.text(`Jabatan: ${report.department_name}`, 14, 26);
-      doc.text(`Minit Mesyuarat MBJ: ${report.meeting_label}`, 14, 32);
-      doc.text(`Tahun: ${report.report_year}`, 14, 38);
+      doc.text(`Jabatan: ${report.department_name}`, 18, 39);
+      doc.text(`Minit Mesyuarat MBJ: ${report.meeting_label}`, 98, 39);
+      doc.text(`Tahun: ${report.report_year}`, 228, 39);
 
       autoTable(doc, {
-        startY: 44,
+        startY: 54,
         head: [
           [
             { content: 'Bil.', rowSpan: 2 },
@@ -698,17 +704,46 @@ export default function Dashboard() {
           ],
         ],
         theme: 'grid',
-        headStyles: { fillColor: [15, 23, 42], halign: 'center', valign: 'middle' },
-        styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', valign: 'top' },
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], halign: 'center', valign: 'middle', lineColor: [203, 213, 225], lineWidth: 0.2 },
+        styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', valign: 'top', lineColor: [203, 213, 225], lineWidth: 0.1, textColor: [30, 41, 59] },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
         columnStyles: {
           0: { cellWidth: 12, halign: 'center' },
-          1: { cellWidth: 34 },
-          2: { cellWidth: 16, halign: 'center' },
-          3: { cellWidth: 22, halign: 'center' },
+          1: { cellWidth: 34, fontStyle: 'bold' },
+          2: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+          3: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
           4: { cellWidth: 48 },
-          5: { cellWidth: 16, halign: 'center' },
-          6: { cellWidth: 22, halign: 'center' },
+          5: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+          6: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
           7: { cellWidth: 56 },
+        },
+        didParseCell: (hookData) => {
+          if (hookData.section === 'head' && hookData.row.index === 1) {
+            if (hookData.column.index >= 2 && hookData.column.index <= 4) {
+              hookData.cell.styles.fillColor = [224, 242, 254];
+              hookData.cell.styles.textColor = [12, 74, 110];
+            }
+            if (hookData.column.index >= 5 && hookData.column.index <= 7) {
+              hookData.cell.styles.fillColor = [220, 252, 231];
+              hookData.cell.styles.textColor = [20, 83, 45];
+            }
+          }
+
+          if (hookData.section === 'body') {
+            const isTotalRow = hookData.row.index === report.rows.length;
+            if (isTotalRow) {
+              hookData.cell.styles.fillColor = [254, 240, 138];
+              hookData.cell.styles.textColor = [113, 63, 18];
+              hookData.cell.styles.fontStyle = 'bold';
+            } else {
+              if (hookData.column.index >= 2 && hookData.column.index <= 4) {
+                hookData.cell.styles.fillColor = hookData.row.index % 2 === 0 ? [239, 246, 255] : [248, 250, 252];
+              }
+              if (hookData.column.index >= 5 && hookData.column.index <= 7) {
+                hookData.cell.styles.fillColor = hookData.row.index % 2 === 0 ? [240, 253, 244] : [248, 250, 252];
+              }
+            }
+          }
         },
       });
 
@@ -749,6 +784,25 @@ export default function Dashboard() {
       ]),
       ['', 'Jumlah isu', report.totals.previous_selesai, report.totals.previous_belum, '', report.totals.new_selesai, report.totals.new_belum, report.totals.overall],
     ]);
+    worksheet['!cols'] = [
+      { wch: 8 },
+      { wch: 24 },
+      { wch: 18 },
+      { wch: 24 },
+      { wch: 48 },
+      { wch: 18 },
+      { wch: 24 },
+      { wch: 52 },
+    ];
+    worksheet['!rows'] = [
+      { hpt: 22 },
+      { hpt: 18 },
+      { hpt: 18 },
+      { hpt: 18 },
+      { hpt: 10 },
+      { hpt: 32 },
+    ];
+    worksheet['!autofilter'] = { ref: 'A6:H6' };
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Jadual Pengelasan');
     XLSX.writeFile(workbook, 'Jadual-Pengelasan.xlsx');
