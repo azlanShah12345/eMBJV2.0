@@ -1,27 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Clock3, FileText, FolderArchive } from 'lucide-react';
 import { api } from '../services/api';
 import { Meeting, User } from '../types';
-import { Plus, FileText, Calendar, ChevronRight, Lock, Unlock, FolderArchive, BarChart3, CheckCircle2, Clock3 } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { useToast } from '../components/Toast';
 
 interface DeptDashboardProps {
   user: User;
 }
 
 export default function DeptDashboard({ user }: DeptDashboardProps) {
-  const { showToast } = useToast();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
   const [selectedYear, setSelectedYear] = useState('');
-
-  // Form state
-  const [bil, setBil] = useState('Bil 1');
-  const [tarikh, setTarikh] = useState('');
-  const [submissionMethod, setSubmissionMethod] = useState<'D' | 'E'>('E');
-  const [file, setFile] = useState<File | null>(null);
 
   useEffect(() => {
     fetchMeetings();
@@ -44,38 +34,12 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
 
   const fetchMeetings = async () => {
     try {
-      const data = await api.getMeetings(user.role === 'ADMIN' ? undefined : user.department_id);
+      const data = await api.getMeetings(user.department_id);
       setMeetings(data);
-    } catch (err) {
-      console.error(err);
+    } catch (error) {
+      console.error(error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const formData = new FormData();
-    formData.append('bil_mesyuarat', bil);
-    formData.append('tarikh_mesyuarat', tarikh);
-    formData.append('department_id', user.department_id.toString());
-    formData.append('submission_method', submissionMethod);
-    if (file) formData.append('minit', file);
-
-    try {
-      setIsSaving(true);
-      await api.createMeeting(formData);
-      setIsModalOpen(false);
-      setBil('Bil 1');
-      setTarikh('');
-      setSubmissionMethod('E');
-      setFile(null);
-      showToast('Rekod mesyuarat berjaya diwujudkan');
-      fetchMeetings();
-    } catch (err) {
-      showToast('Gagal mewujudkan rekod mesyuarat', 'error');
-    } finally {
-      setIsSaving(false);
     }
   };
 
@@ -98,6 +62,9 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
   const completedIssues = filteredMeetings.reduce((sum, meeting) => sum + Number(meeting.completed_issues || 0), 0);
   const pendingIssues = Math.max(0, totalIssues - completedIssues);
   const completionRate = totalIssues > 0 ? (completedIssues / totalIssues) * 100 : 0;
+  const latestMeeting = filteredMeetings
+    .slice()
+    .sort((a, b) => new Date(b.tarikh_mesyuarat).getTime() - new Date(a.tarikh_mesyuarat).getTime())[0];
   const yearSummary = availableYears.map((year) => {
     const yearlyMeetings = meetings.filter((meeting) => new Date(meeting.tarikh_mesyuarat).getFullYear() === year);
     const yearlySubmitted = yearlyMeetings.filter((meeting) => meeting.is_locked === 1);
@@ -114,10 +81,10 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
     <div className="space-y-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Rekod Mesyuarat</h2>
-          <p className="text-slate-500">Urus, semak, dan jejak laporan serta isu MBJ jabatan anda mengikut tahun.</p>
+          <h2 className="text-2xl font-bold text-slate-900">Papan Pemuka Jabatan</h2>
+          <p className="text-slate-500">Pantau ringkasan prestasi MBJ jabatan anda tanpa bercampur dengan pengurusan rekod mesyuarat.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-end gap-3">
           <div className="min-w-[180px]">
             <label className="mb-1 block text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Tahun Rekod</label>
             <select
@@ -130,14 +97,13 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
               ))}
             </select>
           </div>
-          <button
-            type="button"
-            onClick={() => setIsModalOpen(true)}
-            className="mt-5 flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white shadow-lg shadow-emerald-600/10 transition-colors hover:bg-emerald-700 lg:mt-0"
+          <Link
+            to="/meetings"
+            className="flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white shadow-lg shadow-emerald-600/10 transition-colors hover:bg-emerald-700"
           >
-            <Plus size={20} />
-            Mesyuarat Baharu
-          </button>
+            <FileText size={18} />
+            Buka Menu Mesyuarat
+          </Link>
         </div>
       </div>
 
@@ -196,7 +162,7 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
         <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-bold text-slate-900">Arkib Tahunan</h3>
-            <p className="mt-1 text-sm text-slate-500">Ringkasan rekod jabatan untuk memudahkan semakan apabila penggunaan sistem melangkau tahun.</p>
+            <p className="mt-1 text-sm text-slate-500">Semak corak laporan tahunan dan pilih tahun yang hendak dianalisis.</p>
           </div>
           <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.24em] text-slate-500">
             {availableYears.length} tahun
@@ -219,175 +185,74 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
       </div>
 
       {loading ? (
-        <div className="text-center py-12">Sedang memuatkan mesyuarat...</div>
+        <div className="py-12 text-center">Sedang memuatkan mesyuarat...</div>
       ) : (
-        <div className="space-y-8">
-          {[
-            { title: 'Laporan Dihantar Ke HQ', subtitle: 'Rekod yang telah diserahkan sebagai rujukan rasmi HQ.', data: submittedMeetings, tone: 'emerald' },
-            { title: 'Draf Dan Dalam Tindakan', subtitle: 'Rekod yang masih aktif untuk dikemas kini oleh jabatan.', data: draftMeetings, tone: 'slate' },
-          ].map((section) => (
-            <div key={section.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="mb-5 flex items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-bold text-slate-900">{section.title}</h3>
-                  <p className="mt-1 text-sm text-slate-500">{section.subtitle}</p>
-                </div>
-                <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.24em] text-slate-500">
-                  {section.data.length} rekod
-                </div>
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.3fr_0.9fr]">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Tindakan Pantas</h3>
+                <p className="mt-1 text-sm text-slate-500">Buka modul pengurusan mesyuarat untuk daftar rekod baharu atau kemas kini mesyuarat sedia ada.</p>
               </div>
-              {section.data.length === 0 ? (
-                <div className="rounded-2xl bg-slate-50 p-6 text-sm italic text-slate-400">
-                  Tiada rekod untuk tahun {selectedYear} dalam seksyen ini.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-                  {section.data.map((meeting) => (
-                    <Link 
-                      key={meeting.id} 
-                      to={`/meeting/${meeting.id}`}
-                      className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 transition-all hover:border-emerald-200 hover:shadow-xl"
-                    >
-                      <div className="mb-4 flex items-start justify-between">
-                        <div className={`rounded-xl p-3 transition-colors ${section.tone === 'emerald' ? 'bg-emerald-50 text-emerald-600 group-hover:bg-emerald-600 group-hover:text-white' : 'bg-slate-100 text-slate-700 group-hover:bg-slate-800 group-hover:text-white'}`}>
-                          <FileText size={24} />
-                        </div>
-                        {meeting.is_locked ? (
-                          <div className="flex flex-col items-end gap-1">
-                            <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-amber-600">
-                              <Lock size={12} /> Dalam Rekod HQ
-                            </span>
-                            {meeting.unlock_requested === 1 && (
-                              <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-indigo-600">
-                                Permohonan Buka Kunci
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-emerald-600">
-                            <Unlock size={12} /> Dalam Tindakan
-                          </span>
-                        )}
-                      </div>
-                      
-                      <h3 className="mb-1 text-xl font-bold text-slate-800">{meeting.bil_mesyuarat}</h3>
-                      <div className="mb-4 flex items-center gap-2 text-sm text-slate-500">
-                        <Calendar size={14} />
-                        {new Date(meeting.tarikh_mesyuarat).toLocaleDateString('ms-MY')}
-                      </div>
-
-                      <div className="space-y-3">
-                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                          <div 
-                            className="h-full bg-emerald-500 transition-all duration-500" 
-                            style={{ width: `${meeting.total_issues ? (meeting.completed_issues / meeting.total_issues) * 100 : 0}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between text-xs font-semibold">
-                          <span className="text-slate-500">{meeting.total_issues} jumlah isu</span>
-                          <span className="text-emerald-600">{meeting.completed_issues} selesai</span>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-xs">
-                        <div>
-                          <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Tahun</p>
-                          <p className="mt-1 font-semibold text-slate-700">{new Date(meeting.tarikh_mesyuarat).getFullYear()}</p>
-                        </div>
-                        <div>
-                          <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Kaedah</p>
-                          <p className="mt-1 font-semibold text-slate-700">{meeting.submission_method || '-'}</p>
-                        </div>
-                      </div>
-
-                      <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 text-sm font-semibold text-emerald-600">
-                        Lihat Butiran
-                        <ChevronRight size={18} className="transform transition-transform group-hover:translate-x-1" />
-                      </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
+              <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
+                <CalendarDays size={22} />
+              </div>
             </div>
-          ))}
-        </div>
-      )}
-
-      {/* Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
-            <div className="bg-slate-800 p-6 text-white">
-              <h3 className="text-xl font-bold">Daftar Mesyuarat Baharu</h3>
-              <p className="text-slate-400 text-sm">Masukkan butiran mesyuarat MBJ.</p>
+            <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <Link
+                to="/meetings"
+                className="group rounded-2xl border border-emerald-200 bg-emerald-50 p-5 transition-colors hover:bg-emerald-100"
+              >
+                <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Menu Mesyuarat</p>
+                <p className="mt-3 text-xl font-black text-slate-900">Daftar Dan Urus Rekod</p>
+                <p className="mt-2 text-sm text-slate-600">Semua fungsi `Mesyuarat Baharu`, draf, dan penghantaran HQ diletakkan di sini.</p>
+                <div className="mt-4 flex items-center gap-2 text-sm font-semibold text-emerald-700">
+                  Buka modul
+                  <ChevronRight size={16} className="transition-transform group-hover:translate-x-1" />
+                </div>
+              </Link>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Status Tahun {selectedYear}</p>
+                <p className="mt-3 text-xl font-black text-slate-900">{submittedMeetings.length}/{filteredMeetings.length} rekod dihantar</p>
+                <p className="mt-2 text-sm text-slate-600">Hanya rekod yang dihantar ke HQ dianggap rasmi pada analitik pentadbir.</p>
+              </div>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Bilangan Mesyuarat</label>
-                <select 
-                  value={bil}
-                  onChange={(e) => setBil(e.target.value)}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  <option>Bil 1</option>
-                  <option>Bil 2</option>
-                  <option>Bil 3</option>
-                </select>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900">Mesyuarat Terkini</h3>
+            <p className="mt-1 text-sm text-slate-500">Paparan ringkas rekod paling terkini untuk tahun dipilih.</p>
+            {latestMeeting ? (
+              <Link
+                to={`/meeting/${latestMeeting.id}`}
+                className="mt-5 block rounded-2xl border border-slate-200 bg-slate-50 p-5 transition-colors hover:border-emerald-200 hover:bg-white"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Rekod Terkini</p>
+                    <p className="mt-3 text-2xl font-black text-slate-900">{latestMeeting.bil_mesyuarat}</p>
+                    <p className="mt-2 text-sm text-slate-500">{new Date(latestMeeting.tarikh_mesyuarat).toLocaleDateString('ms-MY')}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-200 p-3 text-slate-700">
+                    <FileText size={20} />
+                  </div>
+                </div>
+                <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Status</p>
+                    <p className="mt-1 font-semibold text-slate-800">{latestMeeting.is_locked === 1 ? 'Dihantar ke HQ' : 'Dalam tindakan'}</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Isu</p>
+                    <p className="mt-1 font-semibold text-slate-800">{latestMeeting.completed_issues}/{latestMeeting.total_issues} selesai</p>
+                  </div>
+                </div>
+              </Link>
+            ) : (
+              <div className="mt-5 rounded-2xl bg-slate-50 p-5 text-sm italic text-slate-400">
+                Tiada rekod mesyuarat untuk tahun {selectedYear}.
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Tarikh Mesyuarat</label>
-                <input 
-                  type="date"
-                  required
-                  value={tarikh}
-                  onChange={(e) => setTarikh(e.target.value)}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Minit Mesyuarat (PDF)</label>
-                <input 
-                  type="file"
-                  accept=".pdf"
-                  onChange={(e) => setFile(e.target.files?.[0] || null)}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1">Kaedah Hantar Minit</label>
-                <select
-                  value={submissionMethod}
-                  onChange={(e) => setSubmissionMethod(e.target.value as 'D' | 'E')}
-                  className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  <option value="E">E - Emel</option>
-                  <option value="D">D - Salinan Keras / Pos</option>
-                </select>
-              </div>
-              <div className="flex gap-3 pt-4">
-                <button 
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 rounded-lg font-medium hover:bg-slate-50"
-                >
-                  Batal
-                </button>
-                <button 
-                  type="submit"
-                  disabled={isSaving}
-                  className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 shadow-lg shadow-emerald-600/10 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                >
-                  {isSaving ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      Sedang menyimpan...
-                    </>
-                  ) : (
-                    'Simpan Rekod'
-                  )}
-                </button>
-              </div>
-            </form>
+            )}
           </div>
         </div>
       )}

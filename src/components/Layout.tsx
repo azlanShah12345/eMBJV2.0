@@ -1,6 +1,6 @@
-import { Outlet, Link, useNavigate } from 'react-router-dom';
+import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { Meeting, User } from '../types';
-import { LogOut, LayoutDashboard, Settings, User as UserIcon, Menu, X, KeyRound, Bell, Lock, Trash2 } from 'lucide-react';
+import { LogOut, LayoutDashboard, Settings, User as UserIcon, Menu, X, KeyRound, Bell, Lock, Trash2, FileText } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api';
 
@@ -66,6 +66,8 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   }, [requestNotifications]);
 
   const unreadNotifications = requestNotifications.filter((item) => !seenNotificationKeys.includes(item.key));
+  const navLinkClassName = ({ isActive }: { isActive: boolean }) =>
+    `flex items-center gap-3 rounded-lg p-3 transition-colors ${isActive ? 'bg-slate-800 text-white' : 'text-slate-100 hover:bg-slate-800'}`;
 
   return (
     <div className="min-h-screen bg-slate-50 flex">
@@ -79,20 +81,26 @@ export default function Layout({ user, onLogout }: LayoutProps) {
         </div>
 
         <nav className="flex-1 px-4 space-y-2">
-          <Link to="/" className="flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors">
+          <NavLink to="/" end className={navLinkClassName}>
             <LayoutDashboard size={20} />
             {isSidebarOpen && <span>Papan Pemuka</span>}
-          </Link>
-          <Link to="/account" className="flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors">
+          </NavLink>
+          {user.role !== 'ADMIN' && (
+            <NavLink to="/meetings" className={navLinkClassName}>
+              <FileText size={20} />
+              {isSidebarOpen && <span>Mesyuarat</span>}
+            </NavLink>
+          )}
+          <NavLink to="/account" className={navLinkClassName}>
             <KeyRound size={20} />
             {isSidebarOpen && <span>Akaun</span>}
-          </Link>
+          </NavLink>
           {user.role === 'ADMIN' && (
             <>
-              <Link to="/settings" className="flex items-center gap-3 p-3 hover:bg-slate-800 rounded-lg transition-colors">
+              <NavLink to="/settings" className={navLinkClassName}>
                 <Settings size={20} />
                 {isSidebarOpen && <span>Tetapan</span>}
-              </Link>
+              </NavLink>
             </>
           )}
         </nav>

@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import DeptDashboard from './pages/DeptDashboard';
+import UserMeetings from './pages/UserMeetings';
 import MeetingDetails from './pages/MeetingDetails';
 import Settings from './pages/Settings';
 import Account from './pages/Account';
@@ -48,9 +49,13 @@ function App() {
           />
           
           <Route element={user ? <Layout user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}>
-            <Route 
+          <Route 
               path="/" 
               element={user?.role === 'ADMIN' ? <Dashboard /> : <DeptDashboard user={user!} />} 
+            />
+            <Route
+              path="/meetings"
+              element={user?.role === 'ADMIN' ? <Navigate to="/" /> : <UserMeetings user={user!} />}
             />
             <Route path="/account" element={<Account user={user!} />} />
             <Route path="/settings" element={user?.role === 'ADMIN' ? <Settings /> : <Navigate to="/" />} />
