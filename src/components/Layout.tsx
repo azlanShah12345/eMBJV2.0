@@ -73,59 +73,119 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   const unreadNotifications = requestNotifications.filter((item) => !seenNotificationKeys.includes(item.key));
   const totalUnreadBadge = unreadNotifications.length + messageUnreadSummary.total_unread;
   const navLinkClassName = ({ isActive }: { isActive: boolean }) =>
-    `flex items-center gap-3 rounded-lg p-3 transition-colors ${isActive ? 'bg-slate-800 text-white' : 'text-slate-100 hover:bg-slate-800'}`;
+    `group flex items-center gap-3 rounded-2xl border px-3 py-3 transition-all ${
+      isActive
+        ? 'border-emerald-200 bg-white text-slate-900 shadow-lg shadow-emerald-950/10'
+        : 'border-transparent text-slate-200 hover:border-white/10 hover:bg-white/10 hover:text-white'
+    }`;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="flex min-h-screen bg-transparent">
       {/* Sidebar */}
-      <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} bg-slate-900 text-white transition-all duration-300 flex flex-col`}>
-        <div className="p-6 flex items-center justify-between">
-          {isSidebarOpen && <span className="font-bold text-xl tracking-tight">SISTEM eMBJ</span>}
-          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1 hover:bg-slate-800 rounded">
+      <aside className={`${isSidebarOpen ? 'w-72' : 'w-24'} m-4 flex flex-col rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,#0f172a_0%,#16213a_52%,#1e293b_100%)] text-white shadow-2xl shadow-slate-950/15 transition-all duration-300`}>
+        <div className="flex items-center justify-between px-6 pb-5 pt-6">
+          {isSidebarOpen && (
+            <div>
+              <span className="block text-[11px] font-bold uppercase tracking-[0.34em] text-emerald-200/80">Sarawak Civil Service</span>
+              <span className="mt-2 block text-2xl font-black tracking-tight text-white">eMBJ</span>
+            </div>
+          )}
+          <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="rounded-xl border border-white/10 bg-white/5 p-2 text-slate-200 transition-colors hover:bg-white/10 hover:text-white">
             {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
         </div>
 
-        <nav className="flex-1 px-4 space-y-2">
+        <div className="px-4">
+          {isSidebarOpen && (
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50 shadow-inner">
+              <p className="font-semibold">Navigasi utama</p>
+              <p className="mt-1 text-xs text-emerald-100/80">Tab aktif dipaparkan dengan latar putih supaya lebih jelas dilihat.</p>
+            </div>
+          )}
+        </div>
+
+        <nav className="flex-1 space-y-3 px-4 py-5">
           <NavLink to="/" end className={navLinkClassName}>
-            <LayoutDashboard size={20} />
-            {isSidebarOpen && <span>Papan Pemuka</span>}
+            {({ isActive }) => (
+              <>
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-white/10 text-slate-100 group-hover:bg-white/15'}`}>
+                  <LayoutDashboard size={20} />
+                </div>
+                {isSidebarOpen && (
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-sm font-bold">Papan Pemuka</span>
+                    <span className={`block text-xs ${isActive ? 'text-slate-500' : 'text-slate-300/80'}`}>Ringkasan utama sistem</span>
+                  </div>
+                )}
+              </>
+            )}
           </NavLink>
           {user.role !== 'ADMIN' && (
             <NavLink to="/meetings" className={navLinkClassName}>
-              <FileText size={20} />
-              {isSidebarOpen && <span>Mesyuarat</span>}
+              {({ isActive }) => (
+                <>
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-white/10 text-slate-100 group-hover:bg-white/15'}`}>
+                    <FileText size={20} />
+                  </div>
+                  {isSidebarOpen && (
+                    <div className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold">Mesyuarat</span>
+                      <span className={`block text-xs ${isActive ? 'text-slate-500' : 'text-slate-300/80'}`}>Draf, rekod dan tindakan</span>
+                    </div>
+                  )}
+                </>
+              )}
             </NavLink>
           )}
           <NavLink to="/account" className={navLinkClassName}>
-            <KeyRound size={20} />
-            {isSidebarOpen && <span>Akaun</span>}
+            {({ isActive }) => (
+              <>
+                <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-white/10 text-slate-100 group-hover:bg-white/15'}`}>
+                  <KeyRound size={20} />
+                </div>
+                {isSidebarOpen && (
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-sm font-bold">Akaun</span>
+                    <span className={`block text-xs ${isActive ? 'text-slate-500' : 'text-slate-300/80'}`}>Profil dan kata laluan</span>
+                  </div>
+                )}
+              </>
+            )}
           </NavLink>
           {user.role === 'ADMIN' && (
-            <>
-              <NavLink to="/settings" className={navLinkClassName}>
-                <Settings size={20} />
-                {isSidebarOpen && <span>Tetapan</span>}
-              </NavLink>
-            </>
+            <NavLink to="/settings" className={navLinkClassName}>
+              {({ isActive }) => (
+                <>
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-white/10 text-slate-100 group-hover:bg-white/15'}`}>
+                    <Settings size={20} />
+                  </div>
+                  {isSidebarOpen && (
+                    <div className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold">Tetapan</span>
+                      <span className={`block text-xs ${isActive ? 'text-slate-500' : 'text-slate-300/80'}`}>Konfigurasi sistem</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </NavLink>
           )}
         </nav>
 
-        <div className="p-4 border-t border-slate-800">
-          <div className="flex items-center gap-3 p-3 mb-4">
-            <div className="w-8 h-8 bg-slate-700 rounded-full flex items-center justify-center">
+        <div className="mx-4 mb-4 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/10">
               <UserIcon size={16} />
             </div>
             {isSidebarOpen && (
               <div className="flex flex-col overflow-hidden">
-                <span className="text-sm font-medium truncate">{user.username}</span>
-                <span className="text-xs text-slate-400 truncate">{user.department_name}</span>
+                <span className="truncate text-sm font-bold text-white">{user.username}</span>
+                <span className="truncate text-xs text-slate-300">{user.department_name}</span>
               </div>
             )}
           </div>
           <button 
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 p-3 text-red-400 hover:bg-red-400/10 rounded-lg transition-colors"
+            className="flex w-full items-center gap-3 rounded-2xl border border-red-300/15 bg-red-400/10 p-3 text-red-100 transition-colors hover:bg-red-400/20"
           >
             <LogOut size={20} />
             {isSidebarOpen && <span>Log Keluar</span>}
@@ -134,8 +194,8 @@ export default function Layout({ user, onLogout }: LayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto">
-        <header className="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between sticky top-0 z-10">
+      <main className="flex-1 overflow-auto pr-4 pt-4">
+        <header className="sticky top-4 z-10 mx-auto flex items-center justify-between rounded-[28px] border border-white/70 bg-white/85 px-8 py-4 shadow-lg shadow-slate-200/70 backdrop-blur">
           <h1 className="text-lg font-semibold text-slate-800">
             {user.role === 'ADMIN' ? 'Pentadbiran HQ' : `Jabatan: ${user.department_name}`}
           </h1>
@@ -152,7 +212,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
                     return nextOpen;
                   });
                 }}
-                className="relative rounded-xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900"
+                className="relative rounded-2xl border border-slate-200 bg-white p-2.5 text-slate-600 transition-colors hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
               >
                 <Bell size={18} />
                 {totalUnreadBadge > 0 && (
@@ -162,7 +222,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
                 )}
               </button>
               {notificationsOpen && (
-                <div className="absolute right-0 top-14 z-20 w-[360px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                <div className="absolute right-0 top-14 z-20 w-[360px] overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-2xl shadow-slate-300/40">
                   <div className="border-b border-slate-100 px-4 py-3">
                     <p className="text-sm font-bold text-slate-900">Notifikasi Sistem</p>
                     <p className="mt-1 text-xs text-slate-500">Semakan mesej belum dibaca dan tindakan yang memerlukan perhatian.</p>
@@ -267,7 +327,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
           </div>
         </header>
 
-        <div className="p-8">
+        <div className="px-2 pb-8 pt-8">
           <Outlet />
         </div>
       </main>

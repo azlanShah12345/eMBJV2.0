@@ -4,10 +4,37 @@
 @theme {
   --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --color-brand-50: #f0fdf4;
+  --color-brand-100: #dcfce7;
+  --color-brand-500: #16a34a;
+  --color-brand-600: #15803d;
+  --color-shell-900: #0f172a;
+  --color-shell-800: #16213a;
+  --color-shell-700: #1e293b;
+  --color-accent-500: #f59e0b;
 }
 
 @layer base {
+  :root {
+    color-scheme: light;
+  }
+
   body {
-    @apply font-sans antialiased text-slate-900 bg-slate-50;
+    @apply font-sans antialiased text-slate-900;
+    background:
+      radial-gradient(circle at top left, rgba(22, 163, 74, 0.12), transparent 28%),
+      radial-gradient(circle at top right, rgba(245, 158, 11, 0.1), transparent 22%),
+      linear-gradient(180deg, #f8fafc 0%, #eef4f7 100%);
+    min-height: 100vh;
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.85) transparent;
+  }
+
+  ::selection {
+    background: rgba(22, 163, 74, 0.18);
+    color: #0f172a;
   }
 }

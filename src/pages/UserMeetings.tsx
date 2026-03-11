@@ -104,6 +104,10 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
       issues: yearlyIssues,
     };
   });
+  const meetingSections = [
+    { title: 'Draf Dan Dalam Tindakan', subtitle: 'Rekod yang masih aktif untuk dikemas kini oleh jabatan.', data: draftMeetings, tone: 'slate' },
+    { title: 'Laporan Dihantar Ke HQ', subtitle: 'Rekod yang telah diserahkan sebagai rujukan rasmi HQ.', data: submittedMeetings, tone: 'emerald' },
+  ] as const;
 
   return (
     <div className="space-y-8">
@@ -135,6 +139,71 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
           </button>
         </div>
       </div>
+
+      {loading ? (
+        <div className="py-12 text-center">Sedang memuatkan mesyuarat...</div>
+      ) : (
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">{meetingSections[0].title}</h3>
+              <p className="mt-1 text-sm text-slate-500">{meetingSections[0].subtitle}</p>
+            </div>
+            <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.24em] text-slate-500">
+              {meetingSections[0].data.length} rekod
+            </div>
+          </div>
+          {meetingSections[0].data.length === 0 ? (
+            <div className="rounded-2xl bg-slate-50 p-6 text-sm italic text-slate-400">
+              Tiada rekod untuk tahun {selectedYear} dalam seksyen ini.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {meetingSections[0].data.map((meeting) => (
+                <Link
+                  key={`priority-${meeting.id}`}
+                  to={`/meeting/${meeting.id}`}
+                  className="group relative overflow-hidden rounded-2xl border border-slate-200 bg-white p-6 transition-all hover:border-emerald-200 hover:shadow-xl"
+                >
+                  <div className="mb-4 flex items-start justify-between">
+                    <div className="rounded-xl bg-slate-100 p-3 text-slate-700 transition-colors group-hover:bg-slate-800 group-hover:text-white">
+                      <FileText size={24} />
+                    </div>
+                    <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-xs font-bold uppercase tracking-wider text-emerald-600">
+                      <Unlock size={12} /> Dalam Tindakan
+                    </span>
+                  </div>
+                  <h3 className="mb-1 text-xl font-bold text-slate-800">{meeting.bil_mesyuarat}</h3>
+                  <div className="mb-4 flex items-center gap-2 text-sm text-slate-500">
+                    <Calendar size={14} />
+                    {new Date(meeting.tarikh_mesyuarat).toLocaleDateString('ms-MY')}
+                  </div>
+                  <div className="space-y-3">
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
+                      <div
+                        className="h-full bg-emerald-500 transition-all duration-500"
+                        style={{ width: `${meeting.total_issues ? (meeting.completed_issues / meeting.total_issues) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs font-semibold">
+                      <span className="text-slate-500">{meeting.total_issues} jumlah isu</span>
+                      <span className="text-emerald-600">{meeting.completed_issues} selesai</span>
+                    </div>
+                  </div>
+                  <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs">
+                    <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Tahun</p>
+                    <p className="mt-1 font-semibold text-slate-700">{new Date(meeting.tarikh_mesyuarat).getFullYear()}</p>
+                  </div>
+                  <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 text-sm font-semibold text-emerald-600">
+                    Lihat Butiran
+                    <ChevronRight size={18} className="transform transition-transform group-hover:translate-x-1" />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -213,14 +282,9 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
         </div>
       </div>
 
-      {loading ? (
-        <div className="py-12 text-center">Sedang memuatkan mesyuarat...</div>
-      ) : (
+      {!loading && (
         <div className="space-y-8">
-          {[
-            { title: 'Draf Dan Dalam Tindakan', subtitle: 'Rekod yang masih aktif untuk dikemas kini oleh jabatan.', data: draftMeetings, tone: 'slate' },
-            { title: 'Laporan Dihantar Ke HQ', subtitle: 'Rekod yang telah diserahkan sebagai rujukan rasmi HQ.', data: submittedMeetings, tone: 'emerald' },
-          ].map((section) => (
+          {meetingSections.slice(1).map((section) => (
             <div key={section.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="mb-5 flex items-center justify-between gap-3">
                 <div>
