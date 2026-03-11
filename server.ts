@@ -80,8 +80,11 @@ async function startServer() {
       id INTEGER PRIMARY KEY AUTOINCREMENT, 
       meeting_id INTEGER NOT NULL, 
       category TEXT NOT NULL, 
+      is_from_previous INTEGER NOT NULL DEFAULT 0,
       title TEXT NOT NULL, 
       status TEXT NOT NULL,
+      responsible_officer TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
     );
 
@@ -118,6 +121,10 @@ async function startServer() {
   try { db.prepare("ALTER TABLE users ADD COLUMN requested_at TEXT").run(); } catch(e) {}
   try { db.prepare("UPDATE users SET status = 'APPROVED' WHERE status IS NULL OR TRIM(status) = ''").run(); } catch(e) {}
   try { db.prepare("UPDATE users SET requested_at = CURRENT_TIMESTAMP WHERE requested_at IS NULL OR TRIM(requested_at) = ''").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE issues ADD COLUMN is_from_previous INTEGER NOT NULL DEFAULT 0").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE issues ADD COLUMN responsible_officer TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE issues ADD COLUMN updated_at TEXT").run(); } catch(e) {}
+  try { db.prepare("UPDATE issues SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL OR TRIM(updated_at) = ''").run(); } catch(e) {}
 
   // Migration: Check if meetings table has ON DELETE SET NULL for created_by
   try {
@@ -497,11 +504,11 @@ async function startServer() {
   }));
 
   app.post('/api/meetings/:id/issues', authenticate, catchErrors((req: any, res: any) => {
-    const { category, title, status } = req.body;
+    const { category, title, status, responsible_officer, is_from_previous } = req.body;
     const result = db.prepare(`
-      INSERT INTO issues (meeting_id, category, title, status) 
-      VALUES (?, ?, ?, ?)
-    `).run(req.params.id, category, title, status);
+      INSERT INTO issues (meeting_id, category, is_from_previous, title, status, responsible_officer, updated_at) 
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(req.params.id, category, is_from_previous ? 1 : 0, title, status, responsible_officer || null);
     res.json({ id: result.lastInsertRowid });
   }));
 
@@ -633,12 +640,15 @@ async function startServer() {
   }));
 
   app.patch('/api/issues/:id', authenticate, catchErrors((req: any, res: any) => {
-    const { status, title, category } = req.body;
+    const { status, title, category, responsible_officer, is_from_previous } = req.body;
     const updates = [];
     const params = [];
     if (status) { updates.push('status = ?'); params.push(status); }
     if (title) { updates.push('title = ?'); params.push(title); }
     if (category) { updates.push('category = ?'); params.push(category); }
+    if (responsible_officer !== undefined) { updates.push('responsible_officer = ?'); params.push(responsible_officer); }
+    if (is_from_previous !== undefined) { updates.push('is_from_previous = ?'); params.push(is_from_previous ? 1 : 0); }
+    updates.push('updated_at = CURRENT_TIMESTAMP');
     params.push(req.params.id);
     
     db.prepare(`UPDATE issues SET ${updates.join(', ')} WHERE id = ?`).run(...params);

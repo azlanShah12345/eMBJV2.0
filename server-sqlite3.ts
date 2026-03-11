@@ -75,8 +75,11 @@ async function startServer() {
       id INTEGER PRIMARY KEY AUTOINCREMENT, 
       meeting_id INTEGER NOT NULL, 
       category TEXT NOT NULL, 
+      is_from_previous INTEGER NOT NULL DEFAULT 0,
       title TEXT NOT NULL, 
       status TEXT NOT NULL,
+      responsible_officer TEXT,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
     );
 
@@ -114,7 +117,10 @@ async function startServer() {
     'ALTER TABLE meetings ADD COLUMN delete_requested INTEGER DEFAULT 0',
     'ALTER TABLE meetings ADD COLUMN delete_rejected INTEGER DEFAULT 0',
     "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'APPROVED'",
-    "ALTER TABLE users ADD COLUMN requested_at TEXT"
+    "ALTER TABLE users ADD COLUMN requested_at TEXT",
+    'ALTER TABLE issues ADD COLUMN is_from_previous INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE issues ADD COLUMN responsible_officer TEXT',
+    'ALTER TABLE issues ADD COLUMN updated_at TEXT'
   ];
 
   for (const sql of migrations) {
@@ -127,6 +133,7 @@ async function startServer() {
 
   await db.run("UPDATE users SET status = 'APPROVED' WHERE status IS NULL OR TRIM(status) = ''");
   await db.run("UPDATE users SET requested_at = CURRENT_TIMESTAMP WHERE requested_at IS NULL OR TRIM(requested_at) = ''");
+  await db.run("UPDATE issues SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL OR TRIM(updated_at) = ''");
 
   // Seed Admin User
   const adminExists = await db.get('SELECT * FROM users WHERE username = ?', 'admin');
@@ -510,8 +517,16 @@ async function startServer() {
     }
     if (meeting.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
 
-    const { category, title, status } = req.body;
-    const result = await db.run('INSERT INTO issues (meeting_id, category, title, status) VALUES (?, ?, ?, ?)', meetingId, category, title, status);
+    const { category, title, status, responsible_officer, is_from_previous } = req.body;
+    const result = await db.run(
+      'INSERT INTO issues (meeting_id, category, is_from_previous, title, status, responsible_officer, updated_at) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+      meetingId,
+      category,
+      is_from_previous ? 1 : 0,
+      title,
+      status,
+      responsible_officer || null
+    );
     res.json({ id: result.lastID });
   });
 
@@ -665,12 +680,15 @@ async function startServer() {
     }
     if (issue.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
 
-    const { status, title, category } = req.body;
+    const { status, title, category, responsible_officer, is_from_previous } = req.body;
     const updates = [];
     const params = [];
     if (status) { updates.push('status = ?'); params.push(status); }
     if (title) { updates.push('title = ?'); params.push(title); }
     if (category) { updates.push('category = ?'); params.push(category); }
+    if (responsible_officer !== undefined) { updates.push('responsible_officer = ?'); params.push(responsible_officer); }
+    if (is_from_previous !== undefined) { updates.push('is_from_previous = ?'); params.push(is_from_previous ? 1 : 0); }
+    updates.push('updated_at = CURRENT_TIMESTAMP');
     params.push(issueId);
     await db.run(`UPDATE issues SET ${updates.join(', ')} WHERE id = ?`, ...params);
     res.json({ success: true });

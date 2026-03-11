@@ -395,9 +395,17 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
           : meeting.unlock_rejected
             ? 'Permohonan buka kunci telah ditolak oleh HQ.'
             : meeting.delete_rejected
-              ? 'Permohonan hapus telah ditolak oleh HQ.'
-              : 'Tiada permohonan aktif kepada HQ.',
-      state: (meeting.unlock_requested || meeting.delete_requested) ? 'current' : (meeting.unlock_rejected || meeting.delete_rejected ? 'alert' : 'done'),
+          ? 'Permohonan hapus telah ditolak oleh HQ.'
+              : meeting.is_locked
+                ? 'Tiada permohonan aktif kepada HQ.'
+                : 'Belum ada tindakan HQ kerana rekod masih di peringkat jabatan.',
+      state: (meeting.unlock_requested || meeting.delete_requested)
+        ? 'current'
+        : (meeting.unlock_rejected || meeting.delete_rejected)
+          ? 'alert'
+          : meeting.is_locked
+            ? 'done'
+            : 'pending',
     },
   ] as const;
 
