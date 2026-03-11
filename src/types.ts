@@ -70,6 +70,22 @@ export interface MeetingMessageUnreadSummary {
   items: MeetingMessageUnreadItem[];
 }
 
+export interface AuditLog {
+  id: number;
+  actor_user_id: number | null;
+  actor_username: string | null;
+  actor_role: 'ADMIN' | 'USER' | null;
+  actor_department_name: string | null;
+  action: string;
+  entity_type: string;
+  entity_id: string | null;
+  target_label: string | null;
+  details: Record<string, unknown> | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+}
+
 export interface CategoryStats {
   category: string;
   total: number;

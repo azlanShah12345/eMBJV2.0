@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { Meeting, MeetingMessageUnreadSummary, User } from '../types';
-import { LogOut, LayoutDashboard, Settings, User as UserIcon, Menu, X, KeyRound, Bell, Lock, Trash2, FileText } from 'lucide-react';
+import { LogOut, LayoutDashboard, Settings, User as UserIcon, Menu, X, KeyRound, Bell, Lock, Trash2, FileText, Activity } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api';
 
@@ -152,6 +152,23 @@ export default function Layout({ user, onLogout }: LayoutProps) {
               </>
             )}
           </NavLink>
+          {user.role === 'ADMIN' && (
+            <NavLink to="/audit-trail" className={navLinkClassName}>
+              {({ isActive }) => (
+                <>
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-white/10 text-slate-100 group-hover:bg-white/15'}`}>
+                    <Activity size={20} />
+                  </div>
+                  {isSidebarOpen && (
+                    <div className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold">Audit Trail</span>
+                      <span className={`block text-xs ${isActive ? 'text-slate-500' : 'text-slate-300/80'}`}>Log tindakan sistem</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </NavLink>
+          )}
           {user.role === 'ADMIN' && (
             <NavLink to="/settings" className={navLinkClassName}>
               {({ isActive }) => (

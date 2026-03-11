@@ -71,6 +71,76 @@ const query = async <T = any>(text: string, params: any[] = []) => {
   return result;
 };
 
+const getRequestIp = (req: any) => {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    return forwardedFor.split(',')[0].trim();
+  }
+  return req.ip || null;
+};
+
+const getDepartmentName = async (departmentId?: number | null) => {
+  if (!departmentId) return null;
+  const result = await query<{ name: string }>('SELECT name FROM departments WHERE id = $1', [departmentId]);
+  return result.rows[0]?.name || null;
+};
+
+const writeAuditLog = async (
+  req: any,
+  options: {
+    actor?: AuthUser | null;
+    actorUsername?: string | null;
+    actorRole?: string | null;
+    actorDepartmentId?: number | null;
+    action: string;
+    entityType: string;
+    entityId?: string | number | null;
+    targetLabel?: string | null;
+    details?: Record<string, unknown> | null;
+  }
+) => {
+  try {
+    const actor = options.actor || null;
+    const actorDepartmentName = options.actorDepartmentId !== undefined
+      ? await getDepartmentName(options.actorDepartmentId)
+      : await getDepartmentName(actor?.department_id);
+
+    await query(
+      `
+      INSERT INTO audit_logs (
+        actor_user_id,
+        actor_username,
+        actor_role,
+        actor_department_name,
+        action,
+        entity_type,
+        entity_id,
+        target_label,
+        details,
+        ip_address,
+        user_agent
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+      `,
+      [
+        actor?.id || null,
+        options.actorUsername ?? actor?.username ?? null,
+        options.actorRole ?? actor?.role ?? null,
+        actorDepartmentName,
+        options.action,
+        options.entityType,
+        options.entityId != null ? String(options.entityId) : null,
+        options.targetLabel || null,
+        JSON.stringify(options.details || {}),
+        getRequestIp(req),
+        req.headers['user-agent'] || null,
+      ]
+    );
+  } catch (error) {
+    console.error('Gagal menulis audit log:', error);
+  }
+};
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const connectDatabaseWithRetry = async () => {
@@ -164,6 +234,22 @@ const bootstrapDatabase = async () => {
       last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (user_id, meeting_id)
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id SERIAL PRIMARY KEY,
+      actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      actor_username TEXT,
+      actor_role TEXT,
+      actor_department_name TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      target_label TEXT,
+      details JSONB NOT NULL DEFAULT '{}'::jsonb,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
   `);
 
   await query(`
@@ -181,6 +267,13 @@ const bootstrapDatabase = async () => {
     ALTER TABLE issues ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     ALTER TABLE meeting_messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     ALTER TABLE meeting_message_reads ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_department_name TEXT;
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_id TEXT;
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS target_label TEXT;
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS details JSONB NOT NULL DEFAULT '{}'::jsonb;
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS ip_address TEXT;
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_agent TEXT;
+    ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
   `);
 
   const defaultDepartments = ['HQ', 'IT', 'HR', 'FINANCE'];
@@ -306,6 +399,21 @@ async function startServer() {
       { expiresIn: '12h' }
     );
 
+    await writeAuditLog(req, {
+      actor: {
+        id: user.id,
+        username: user.username,
+        role: user.role,
+        department_id: user.department_id,
+        status: user.status,
+      },
+      action: 'LOGIN',
+      entityType: 'AUTH',
+      entityId: user.id,
+      targetLabel: user.username,
+      details: { department_name: user.department_name },
+    });
+
     res.json({
       token,
       user: {
@@ -340,6 +448,16 @@ async function startServer() {
         'INSERT INTO users (username, password, role, department_id, status, requested_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id',
         [username, hash, 'USER', departmentId, 'PENDING']
       );
+      await writeAuditLog(req, {
+        action: 'REGISTER_ACCOUNT',
+        entityType: 'USER',
+        entityId: result.rows[0].id,
+        targetLabel: username,
+        actorUsername: username,
+        actorRole: 'USER',
+        actorDepartmentId: departmentId,
+        details: { status: 'PENDING' },
+      });
       res.json({ id: result.rows[0].id, success: true });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -364,7 +482,67 @@ async function startServer() {
 
     const hash = bcrypt.hashSync(new_password, 10);
     await query('UPDATE users SET password = $1 WHERE id = $2', [hash, req.user.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'CHANGE_PASSWORD',
+      entityType: 'USER',
+      entityId: req.user.id,
+      targetLabel: req.user.username,
+    });
     res.json({ success: true });
+  });
+
+  app.get('/api/audit-logs', authenticate, isAdmin, async (req, res) => {
+    const { action, actor, date_from, date_to, limit } = req.query;
+    const params: any[] = [];
+    const filters: string[] = [];
+
+    if (action) {
+      params.push(`%${String(action).trim()}%`);
+      filters.push(`al.action ILIKE $${params.length}`);
+    }
+    if (actor) {
+      params.push(`%${String(actor).trim()}%`);
+      filters.push(`(
+        al.actor_username ILIKE $${params.length}
+        OR COALESCE(al.target_label, '') ILIKE $${params.length}
+        OR COALESCE(al.actor_department_name, '') ILIKE $${params.length}
+      )`);
+    }
+    if (date_from) {
+      params.push(String(date_from));
+      filters.push(`al.created_at >= $${params.length}::date`);
+    }
+    if (date_to) {
+      params.push(String(date_to));
+      filters.push(`al.created_at < ($${params.length}::date + INTERVAL '1 day')`);
+    }
+
+    params.push(Math.min(Number(limit || 200), 500));
+    const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+
+    const result = await query(`
+      SELECT
+        al.id,
+        al.actor_user_id,
+        al.actor_username,
+        al.actor_role,
+        al.actor_department_name,
+        al.action,
+        al.entity_type,
+        al.entity_id,
+        al.target_label,
+        al.details,
+        al.ip_address,
+        al.user_agent,
+        al.created_at
+      FROM audit_logs al
+      ${whereClause}
+      ORDER BY al.created_at DESC, al.id DESC
+      LIMIT $${params.length}
+    `, params);
+
+    res.json(result.rows);
   });
 
   app.get('/api/users', authenticate, isAdmin, async (_req, res) => {
@@ -377,7 +555,7 @@ async function startServer() {
     res.json(users.rows);
   });
 
-  app.post('/api/users', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/users', authenticate, isAdmin, async (req: any, res) => {
     const { username, password, role, department_id } = req.body;
     const hash = bcrypt.hashSync(password, 10);
     try {
@@ -385,24 +563,59 @@ async function startServer() {
         'INSERT INTO users (username, password, role, department_id, status, requested_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id',
         [username, hash, role, department_id || null, 'APPROVED']
       );
+      await writeAuditLog(req, {
+        actor: req.user,
+        action: 'CREATE_USER',
+        entityType: 'USER',
+        entityId: result.rows[0].id,
+        targetLabel: username,
+        details: { role, department_id: department_id || null, status: 'APPROVED' },
+      });
       res.json({ id: result.rows[0].id });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete('/api/users/:id', authenticate, isAdmin, async (req, res) => {
+  app.delete('/api/users/:id', authenticate, isAdmin, async (req: any, res) => {
+    const targetUser = await query('SELECT username, role FROM users WHERE id = $1', [req.params.id]);
     await query('DELETE FROM users WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_USER',
+      entityType: 'USER',
+      entityId: req.params.id,
+      targetLabel: targetUser.rows[0]?.username || `Pengguna #${req.params.id}`,
+      details: { role: targetUser.rows[0]?.role || null },
+    });
     res.json({ success: true });
   });
 
-  app.post('/api/users/:id/approve', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/users/:id/approve', authenticate, isAdmin, async (req: any, res) => {
+    const targetUser = await query('SELECT username FROM users WHERE id = $1', [req.params.id]);
     await query('UPDATE users SET status = $1 WHERE id = $2', ['APPROVED', req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'APPROVE_USER',
+      entityType: 'USER',
+      entityId: req.params.id,
+      targetLabel: targetUser.rows[0]?.username || `Pengguna #${req.params.id}`,
+      details: { status: 'APPROVED' },
+    });
     res.json({ success: true });
   });
 
-  app.post('/api/users/:id/reject', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/users/:id/reject', authenticate, isAdmin, async (req: any, res) => {
+    const targetUser = await query('SELECT username FROM users WHERE id = $1', [req.params.id]);
     await query('UPDATE users SET status = $1 WHERE id = $2', ['REJECTED', req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'REJECT_USER',
+      entityType: 'USER',
+      entityId: req.params.id,
+      targetLabel: targetUser.rows[0]?.username || `Pengguna #${req.params.id}`,
+      details: { status: 'REJECTED' },
+    });
     res.json({ success: true });
   });
 
@@ -411,17 +624,32 @@ async function startServer() {
     res.json(departments.rows);
   });
 
-  app.post('/api/departments', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/departments', authenticate, isAdmin, async (req: any, res) => {
     try {
       const result = await query('INSERT INTO departments (name) VALUES ($1) RETURNING id', [req.body.name]);
+      await writeAuditLog(req, {
+        actor: req.user,
+        action: 'CREATE_DEPARTMENT',
+        entityType: 'DEPARTMENT',
+        entityId: result.rows[0].id,
+        targetLabel: req.body.name,
+      });
       res.json({ id: result.rows[0].id });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete('/api/departments/:id', authenticate, isAdmin, async (req, res) => {
+  app.delete('/api/departments/:id', authenticate, isAdmin, async (req: any, res) => {
+    const department = await query('SELECT name FROM departments WHERE id = $1', [req.params.id]);
     await query('DELETE FROM departments WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_DEPARTMENT',
+      entityType: 'DEPARTMENT',
+      entityId: req.params.id,
+      targetLabel: department.rows[0]?.name || `Jabatan #${req.params.id}`,
+    });
     res.json({ success: true });
   });
 
@@ -435,17 +663,32 @@ async function startServer() {
     res.json(categories.rows);
   });
 
-  app.post('/api/categories', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/categories', authenticate, isAdmin, async (req: any, res) => {
     try {
       const result = await query('INSERT INTO categories (name) VALUES ($1) RETURNING id', [req.body.name]);
+      await writeAuditLog(req, {
+        actor: req.user,
+        action: 'CREATE_CATEGORY',
+        entityType: 'CATEGORY',
+        entityId: result.rows[0].id,
+        targetLabel: req.body.name,
+      });
       res.json({ id: result.rows[0].id });
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
   });
 
-  app.delete('/api/categories/:id', authenticate, isAdmin, async (req, res) => {
+  app.delete('/api/categories/:id', authenticate, isAdmin, async (req: any, res) => {
+    const category = await query('SELECT name FROM categories WHERE id = $1', [req.params.id]);
     await query('DELETE FROM categories WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_CATEGORY',
+      entityType: 'CATEGORY',
+      entityId: req.params.id,
+      targetLabel: category.rows[0]?.name || `Kategori #${req.params.id}`,
+    });
     res.json({ success: true });
   });
 
@@ -512,6 +755,19 @@ async function startServer() {
       [bil_mesyuarat, tarikh_mesyuarat, departmentId, req.user.id, minitPath, submission_method || null]
     );
 
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'CREATE_MEETING',
+      entityType: 'MEETING',
+      entityId: result.rows[0].id,
+      targetLabel: bil_mesyuarat,
+      details: {
+        tarikh_mesyuarat,
+        department_id: departmentId,
+        has_minutes: Boolean(minitPath),
+      },
+    });
+
     res.json({ id: result.rows[0].id });
   });
 
@@ -528,6 +784,14 @@ async function startServer() {
     }
 
     await query('DELETE FROM meetings WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: meeting.bil_mesyuarat,
+      details: { department_id: meeting.department_id },
+    });
     res.json({ success: true });
   });
 
@@ -540,16 +804,39 @@ async function startServer() {
     }
 
     await query('UPDATE meetings SET delete_requested = 1, delete_rejected = 0 WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'REQUEST_DELETE_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: meeting.bil_mesyuarat,
+    });
     res.json({ success: true });
   });
 
-  app.post('/api/meetings/:id/approve-delete', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/meetings/:id/approve-delete', authenticate, isAdmin, async (req: any, res) => {
+    const meetingResult = await query('SELECT bil_mesyuarat, department_id FROM meetings WHERE id = $1', [req.params.id]);
     await query('DELETE FROM meetings WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'APPROVE_DELETE_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: meetingResult.rows[0]?.bil_mesyuarat || `Mesyuarat #${req.params.id}`,
+      details: { department_id: meetingResult.rows[0]?.department_id || null },
+    });
     res.json({ success: true });
   });
 
-  app.post('/api/meetings/:id/reject-delete', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/meetings/:id/reject-delete', authenticate, isAdmin, async (req: any, res) => {
     await query('UPDATE meetings SET delete_requested = 0, delete_rejected = 1 WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'REJECT_DELETE_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: `Mesyuarat #${req.params.id}`,
+    });
     res.json({ success: true });
   });
 
@@ -624,6 +911,20 @@ async function startServer() {
       [req.params.id, category, is_from_previous ? 1 : 0, title, status, responsible_officer || null]
     );
 
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'CREATE_ISSUE',
+      entityType: 'ISSUE',
+      entityId: result.rows[0].id,
+      targetLabel: title,
+      details: {
+        meeting_id: req.params.id,
+        category,
+        status,
+        is_from_previous: is_from_previous ? 1 : 0,
+      },
+    });
+
     res.json({ id: result.rows[0].id });
   });
 
@@ -672,6 +973,14 @@ async function startServer() {
       'INSERT INTO meeting_messages (meeting_id, user_id, message) VALUES ($1, $2, $3) RETURNING id',
       [req.params.id, req.user.id, message]
     );
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'SEND_MEETING_MESSAGE',
+      entityType: 'MEETING_MESSAGE',
+      entityId: result.rows[0].id,
+      targetLabel: `Mesyuarat #${req.params.id}`,
+      details: { meeting_id: req.params.id, preview: message.slice(0, 120) },
+    });
     res.json({ id: result.rows[0].id });
   });
 
@@ -783,6 +1092,14 @@ async function startServer() {
 
     params.push(req.params.id);
     await query(`UPDATE issues SET ${updates.join(', ')} WHERE id = $${params.length}`, params);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'UPDATE_ISSUE',
+      entityType: 'ISSUE',
+      entityId: req.params.id,
+      targetLabel: issue.title,
+      details: req.body,
+    });
     res.json({ success: true });
   });
 
@@ -802,11 +1119,26 @@ async function startServer() {
     if (issue.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
 
     await query('DELETE FROM issues WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_ISSUE',
+      entityType: 'ISSUE',
+      entityId: req.params.id,
+      targetLabel: issue.title,
+      details: { meeting_id: issue.meeting_id },
+    });
     res.json({ success: true });
   });
 
-  app.patch('/api/meetings/:id/lock', authenticate, isAdmin, async (req, res) => {
+  app.patch('/api/meetings/:id/lock', authenticate, isAdmin, async (req: any, res) => {
     await query('UPDATE meetings SET is_locked = 1, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'LOCK_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: `Mesyuarat #${req.params.id}`,
+    });
     res.json({ success: true });
   });
 
@@ -822,6 +1154,13 @@ async function startServer() {
       'UPDATE meetings SET is_locked = 1, unlock_requested = 0, unlock_rejected = 0, delete_requested = 0, delete_rejected = 0 WHERE id = $1',
       [req.params.id]
     );
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'SUBMIT_MEETING_TO_HQ',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: meeting.bil_mesyuarat,
+    });
     res.json({ success: true });
   });
 
@@ -834,16 +1173,37 @@ async function startServer() {
     }
 
     await query('UPDATE meetings SET unlock_requested = 1, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'REQUEST_UNLOCK_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: meeting.bil_mesyuarat,
+    });
     res.json({ success: true });
   });
 
-  app.post('/api/meetings/:id/approve-unlock', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/meetings/:id/approve-unlock', authenticate, isAdmin, async (req: any, res) => {
     await query('UPDATE meetings SET is_locked = 0, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'APPROVE_UNLOCK_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: `Mesyuarat #${req.params.id}`,
+    });
     res.json({ success: true });
   });
 
-  app.post('/api/meetings/:id/reject-unlock', authenticate, isAdmin, async (req, res) => {
+  app.post('/api/meetings/:id/reject-unlock', authenticate, isAdmin, async (req: any, res) => {
     await query('UPDATE meetings SET unlock_requested = 0, unlock_rejected = 1 WHERE id = $1', [req.params.id]);
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'REJECT_UNLOCK_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: `Mesyuarat #${req.params.id}`,
+    });
     res.json({ success: true });
   });
 

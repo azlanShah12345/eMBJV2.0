@@ -22,6 +22,14 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const JWT_SECRET = 'mbj-secret-key-2024';
 
+const getRequestIp = (req: any) => {
+  const forwardedFor = req.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    return forwardedFor.split(',')[0].trim();
+  }
+  return req.ip || null;
+};
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -111,6 +119,23 @@ async function startServer() {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      actor_user_id INTEGER,
+      actor_username TEXT,
+      actor_role TEXT,
+      actor_department_name TEXT,
+      action TEXT NOT NULL,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      target_label TEXT,
+      details TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
   `);
 
   // Ensure columns exist (for existing databases) - DO THIS BEFORE MIGRATION
@@ -125,6 +150,13 @@ async function startServer() {
   try { db.prepare("ALTER TABLE issues ADD COLUMN responsible_officer TEXT").run(); } catch(e) {}
   try { db.prepare("ALTER TABLE issues ADD COLUMN updated_at TEXT").run(); } catch(e) {}
   try { db.prepare("UPDATE issues SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL OR TRIM(updated_at) = ''").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE audit_logs ADD COLUMN actor_department_name TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE audit_logs ADD COLUMN entity_id TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE audit_logs ADD COLUMN target_label TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE audit_logs ADD COLUMN details TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE audit_logs ADD COLUMN ip_address TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE audit_logs ADD COLUMN user_agent TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE audit_logs ADD COLUMN created_at TEXT").run(); } catch(e) {}
 
   // Migration: Check if meetings table has ON DELETE SET NULL for created_by
   try {
@@ -263,6 +295,63 @@ async function startServer() {
     }
   };
 
+  const getDepartmentName = (departmentId?: number | null) => {
+    if (!departmentId) return null;
+    const department = db.prepare('SELECT name FROM departments WHERE id = ?').get(departmentId) as any;
+    return department?.name || null;
+  };
+
+  const writeAuditLog = (req: any, options: {
+    actor?: any;
+    actorUsername?: string | null;
+    actorRole?: string | null;
+    actorDepartmentId?: number | null;
+    action: string;
+    entityType: string;
+    entityId?: string | number | null;
+    targetLabel?: string | null;
+    details?: Record<string, unknown> | null;
+  }) => {
+    try {
+      const actor = options.actor || null;
+      const actorDepartmentName = options.actorDepartmentId !== undefined
+        ? getDepartmentName(options.actorDepartmentId)
+        : getDepartmentName(actor?.department_id);
+
+      db.prepare(`
+        INSERT INTO audit_logs (
+          actor_user_id,
+          actor_username,
+          actor_role,
+          actor_department_name,
+          action,
+          entity_type,
+          entity_id,
+          target_label,
+          details,
+          ip_address,
+          user_agent,
+          created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `).run(
+        actor?.id || null,
+        options.actorUsername ?? actor?.username ?? null,
+        options.actorRole ?? actor?.role ?? null,
+        actorDepartmentName,
+        options.action,
+        options.entityType,
+        options.entityId != null ? String(options.entityId) : null,
+        options.targetLabel || null,
+        JSON.stringify(options.details || {}),
+        getRequestIp(req),
+        req.headers['user-agent'] || null
+      );
+    } catch (error) {
+      console.error('Gagal menulis audit log:', error);
+    }
+  };
+
   // Auth Middleware
   const authenticate = (req: any, res: any, next: any) => {
     const authHeader = req.headers.authorization;
@@ -324,6 +413,15 @@ async function startServer() {
       status: user.status,
     }, JWT_SECRET, { expiresIn: '12h' });
 
+    writeAuditLog(req, {
+      actor: user,
+      action: 'LOGIN',
+      entityType: 'AUTH',
+      entityId: user.id,
+      targetLabel: user.username,
+      details: { department_name: user.department_name },
+    });
+
     res.json({ 
       token, 
       user: { 
@@ -357,7 +455,54 @@ async function startServer() {
       INSERT INTO users (username, password, role, department_id, status, requested_at)
       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(username, hash, 'USER', departmentId, 'PENDING');
+    writeAuditLog(req, {
+      action: 'REGISTER_ACCOUNT',
+      entityType: 'USER',
+      entityId: result.lastInsertRowid,
+      targetLabel: username,
+      actorUsername: username,
+      actorRole: 'USER',
+      actorDepartmentId: departmentId,
+      details: { status: 'PENDING' },
+    });
     res.json({ id: result.lastInsertRowid, success: true });
+  }));
+
+  app.get('/api/audit-logs', authenticate, isAdmin, catchErrors((req: any, res: any) => {
+    const { action, actor, date_from, date_to, limit } = req.query;
+    const filters = [];
+    const params: any[] = [];
+
+    if (action) {
+      filters.push('action LIKE ?');
+      params.push(`%${String(action).trim()}%`);
+    }
+    if (actor) {
+      filters.push('(actor_username LIKE ? OR IFNULL(target_label, \'\') LIKE ? OR IFNULL(actor_department_name, \'\') LIKE ?)');
+      params.push(`%${String(actor).trim()}%`, `%${String(actor).trim()}%`, `%${String(actor).trim()}%`);
+    }
+    if (date_from) {
+      filters.push('datetime(created_at) >= datetime(?)');
+      params.push(`${String(date_from)} 00:00:00`);
+    }
+    if (date_to) {
+      filters.push('datetime(created_at) <= datetime(?)');
+      params.push(`${String(date_to)} 23:59:59`);
+    }
+
+    const whereClause = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
+    const rows = db.prepare(`
+      SELECT *
+      FROM audit_logs
+      ${whereClause}
+      ORDER BY datetime(created_at) DESC, id DESC
+      LIMIT ?
+    `).all(...params, Math.min(Number(limit || 200), 500)) as any[];
+
+    res.json(rows.map((row) => ({
+      ...row,
+      details: row.details ? JSON.parse(row.details) : null,
+    })));
   }));
 
   // User Management
@@ -375,21 +520,56 @@ async function startServer() {
     const { username, password, role, department_id } = req.body;
     const hash = bcrypt.hashSync(password, 10);
     const result = db.prepare('INSERT INTO users (username, password, role, department_id, status, requested_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').run(username, hash, role, department_id, 'APPROVED');
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'CREATE_USER',
+      entityType: 'USER',
+      entityId: result.lastInsertRowid,
+      targetLabel: username,
+      details: { role, department_id: department_id || null, status: 'APPROVED' },
+    });
     res.json({ id: result.lastInsertRowid });
   }));
 
   app.delete('/api/users/:id', authenticate, isAdmin, catchErrors((req: any, res: any) => {
+    const targetUser = db.prepare('SELECT username, role FROM users WHERE id = ?').get(req.params.id) as any;
     db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_USER',
+      entityType: 'USER',
+      entityId: req.params.id,
+      targetLabel: targetUser?.username || `Pengguna #${req.params.id}`,
+      details: { role: targetUser?.role || null },
+    });
     res.json({ success: true });
   }));
 
   app.post('/api/users/:id/approve', authenticate, isAdmin, catchErrors((req: any, res: any) => {
+    const targetUser = db.prepare('SELECT username FROM users WHERE id = ?').get(req.params.id) as any;
     db.prepare('UPDATE users SET status = ? WHERE id = ?').run('APPROVED', req.params.id);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'APPROVE_USER',
+      entityType: 'USER',
+      entityId: req.params.id,
+      targetLabel: targetUser?.username || `Pengguna #${req.params.id}`,
+      details: { status: 'APPROVED' },
+    });
     res.json({ success: true });
   }));
 
   app.post('/api/users/:id/reject', authenticate, isAdmin, catchErrors((req: any, res: any) => {
+    const targetUser = db.prepare('SELECT username FROM users WHERE id = ?').get(req.params.id) as any;
     db.prepare('UPDATE users SET status = ? WHERE id = ?').run('REJECTED', req.params.id);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'REJECT_USER',
+      entityType: 'USER',
+      entityId: req.params.id,
+      targetLabel: targetUser?.username || `Pengguna #${req.params.id}`,
+      details: { status: 'REJECTED' },
+    });
     res.json({ success: true });
   }));
 
@@ -402,11 +582,26 @@ async function startServer() {
   app.post('/api/departments', authenticate, isAdmin, catchErrors((req: any, res: any) => {
     const { name } = req.body;
     const result = db.prepare('INSERT INTO departments (name) VALUES (?)').run(name);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'CREATE_DEPARTMENT',
+      entityType: 'DEPARTMENT',
+      entityId: result.lastInsertRowid,
+      targetLabel: name,
+    });
     res.json({ id: result.lastInsertRowid });
   }));
 
   app.delete('/api/departments/:id', authenticate, isAdmin, catchErrors((req: any, res: any) => {
+    const department = db.prepare('SELECT name FROM departments WHERE id = ?').get(req.params.id) as any;
     db.prepare('DELETE FROM departments WHERE id = ?').run(req.params.id);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_DEPARTMENT',
+      entityType: 'DEPARTMENT',
+      entityId: req.params.id,
+      targetLabel: department?.name || `Jabatan #${req.params.id}`,
+    });
     res.json({ success: true });
   }));
 
@@ -424,11 +619,26 @@ async function startServer() {
   app.post('/api/categories', authenticate, isAdmin, catchErrors((req: any, res: any) => {
     const { name } = req.body;
     const result = db.prepare('INSERT INTO categories (name) VALUES (?)').run(name);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'CREATE_CATEGORY',
+      entityType: 'CATEGORY',
+      entityId: result.lastInsertRowid,
+      targetLabel: name,
+    });
     res.json({ id: result.lastInsertRowid });
   }));
 
   app.delete('/api/categories/:id', authenticate, isAdmin, catchErrors((req: any, res: any) => {
+    const category = db.prepare('SELECT name FROM categories WHERE id = ?').get(req.params.id) as any;
     db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_CATEGORY',
+      entityType: 'CATEGORY',
+      entityId: req.params.id,
+      targetLabel: category?.name || `Kategori #${req.params.id}`,
+    });
     res.json({ success: true });
   }));
 
@@ -495,6 +705,14 @@ async function startServer() {
       INSERT INTO meetings (bil_mesyuarat, tarikh_mesyuarat, department_id, created_by, minit_path) 
       VALUES (?, ?, ?, ?, ?)
     `).run(bil_mesyuarat, tarikh_mesyuarat, department_id, req.user.id, minit_path);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'CREATE_MEETING',
+      entityType: 'MEETING',
+      entityId: result.lastInsertRowid,
+      targetLabel: bil_mesyuarat,
+      details: { tarikh_mesyuarat, department_id, has_minutes: Boolean(minit_path) },
+    });
     res.json({ id: result.lastInsertRowid });
   }));
 
@@ -509,6 +727,14 @@ async function startServer() {
       INSERT INTO issues (meeting_id, category, is_from_previous, title, status, responsible_officer, updated_at) 
       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `).run(req.params.id, category, is_from_previous ? 1 : 0, title, status, responsible_officer || null);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'CREATE_ISSUE',
+      entityType: 'ISSUE',
+      entityId: result.lastInsertRowid,
+      targetLabel: title,
+      details: { meeting_id: req.params.id, category, status, is_from_previous: is_from_previous ? 1 : 0 },
+    });
     res.json({ id: result.lastInsertRowid });
   }));
 
@@ -555,6 +781,14 @@ async function startServer() {
       INSERT INTO meeting_messages (meeting_id, user_id, message)
       VALUES (?, ?, ?)
     `).run(req.params.id, req.user.id, message);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'SEND_MEETING_MESSAGE',
+      entityType: 'MEETING_MESSAGE',
+      entityId: result.lastInsertRowid,
+      targetLabel: `Mesyuarat #${req.params.id}`,
+      details: { meeting_id: req.params.id, preview: message.slice(0, 120) },
+    });
     res.json({ id: result.lastInsertRowid });
   }));
 
@@ -652,21 +886,51 @@ async function startServer() {
     params.push(req.params.id);
     
     db.prepare(`UPDATE issues SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'UPDATE_ISSUE',
+      entityType: 'ISSUE',
+      entityId: req.params.id,
+      details: req.body,
+    });
     res.json({ success: true });
   }));
 
   app.delete('/api/issues/:id', authenticate, catchErrors((req: any, res: any) => {
+    const issue = db.prepare('SELECT title, meeting_id FROM issues WHERE id = ?').get(req.params.id) as any;
     db.prepare('DELETE FROM issues WHERE id = ?').run(req.params.id);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_ISSUE',
+      entityType: 'ISSUE',
+      entityId: req.params.id,
+      targetLabel: issue?.title || `Isu #${req.params.id}`,
+      details: { meeting_id: issue?.meeting_id || null },
+    });
     res.json({ success: true });
   }));
 
   app.patch('/api/meetings/:id/lock', authenticate, catchErrors((req: any, res: any) => {
     db.prepare("UPDATE meetings SET is_locked = 1 WHERE id = ?").run(req.params.id);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'LOCK_MEETING',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: `Mesyuarat #${req.params.id}`,
+    });
     res.json({ success: true });
   }));
 
   app.post('/api/meetings/:id/submit', authenticate, catchErrors((req: any, res: any) => {
     db.prepare("UPDATE meetings SET is_locked = 1 WHERE id = ?").run(req.params.id);
+    writeAuditLog(req, {
+      actor: req.user,
+      action: 'SUBMIT_MEETING_TO_HQ',
+      entityType: 'MEETING',
+      entityId: req.params.id,
+      targetLabel: `Mesyuarat #${req.params.id}`,
+    });
     res.json({ success: true });
   }));
 

@@ -7,6 +7,7 @@ import UserMeetings from './pages/UserMeetings';
 import MeetingDetails from './pages/MeetingDetails';
 import Settings from './pages/Settings';
 import Account from './pages/Account';
+import AuditTrail from './pages/AuditTrail';
 import Layout from './components/Layout';
 import { User } from './types';
 
@@ -59,6 +60,7 @@ function App() {
             />
             <Route path="/account" element={<Account user={user!} />} />
             <Route path="/settings" element={user?.role === 'ADMIN' ? <Settings /> : <Navigate to="/" />} />
+            <Route path="/audit-trail" element={user?.role === 'ADMIN' ? <AuditTrail /> : <Navigate to="/" />} />
             <Route path="/meeting/:id" element={<MeetingDetails user={user!} />} />
           </Route>
         </Routes>

@@ -1,4 +1,4 @@
-import { User, Department, Meeting, Issue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary } from '../types';
+import { User, Department, Meeting, Issue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog } from '../types';
 
 const API_BASE = '/api';
 
@@ -108,6 +108,19 @@ export const api = {
 
   async getMeetingMessageUnreadSummary(): Promise<MeetingMessageUnreadSummary> {
     const res = await fetch(`${API_BASE}/messages/unread-summary`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getAuditLogs(params: { action?: string; actor?: string; date_from?: string; date_to?: string; limit?: number } = {}): Promise<AuditLog[]> {
+    const query = new URLSearchParams(
+      Object.entries(params).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          acc[key] = String(value);
+        }
+        return acc;
+      }, {})
+    ).toString();
+    const res = await fetch(`${API_BASE}/audit-logs${query ? `?${query}` : ''}`, { headers: getHeaders() });
     return handleResponse(res);
   },
 
