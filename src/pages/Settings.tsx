@@ -32,22 +32,33 @@ export default function Settings() {
   const [newCat, setNewCat] = useState('');
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    fetchData(activeTab);
+  }, [activeTab]);
 
-  const fetchData = async () => {
+  const fetchData = async (tab: 'users' | 'departments' | 'categories' = activeTab) => {
     setLoading(true);
     try {
-      const [u, d, c] = await Promise.all([
-        api.getUsers(),
-        api.getDepartments(),
-        api.getCategories()
-      ]);
-      setUsers(u);
-      setDepartments(d);
-      setCategories(c);
+      if (tab === 'users') {
+        const [u, d] = await Promise.all([
+          api.getUsers(),
+          api.getDepartments(),
+        ]);
+        setUsers(u);
+        setDepartments(d);
+      }
+
+      if (tab === 'departments') {
+        const d = await api.getDepartments();
+        setDepartments(d);
+      }
+
+      if (tab === 'categories') {
+        const c = await api.getCategories();
+        setCategories(c);
+      }
     } catch (err) {
       console.error(err);
+      showToast(`Gagal memuatkan data tab ${tab === 'users' ? 'pengguna' : tab === 'departments' ? 'jabatan' : 'kategori'}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -62,10 +73,10 @@ export default function Settings() {
         department_id: newUser.department_id ? Number(newUser.department_id) : null
       });
       setNewUser({ username: '', password: '', role: 'USER', department_id: '' });
-      showToast('User created successfully');
-      fetchData();
+      showToast('Pengguna berjaya diwujudkan');
+      fetchData('users');
     } catch (err) {
-      showToast('Failed to create user', 'error');
+      showToast('Gagal mewujudkan pengguna', 'error');
     } finally {
       setIsCreating(false);
     }
@@ -78,7 +89,7 @@ export default function Settings() {
       await api.createDepartment(newDept);
       setNewDept('');
       showToast('Jabatan berjaya diwujudkan');
-      fetchData();
+      fetchData('departments');
     } catch (err) {
       showToast('Gagal mewujudkan jabatan', 'error');
     } finally {
@@ -93,7 +104,7 @@ export default function Settings() {
       await api.createCategory(newCat);
       setNewCat('');
       showToast('Kategori berjaya diwujudkan');
-      fetchData();
+      fetchData('categories');
     } catch (err) {
       showToast('Gagal mewujudkan kategori', 'error');
     } finally {
@@ -111,10 +122,10 @@ export default function Settings() {
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         try {
           await api.deleteUser(id);
-          showToast('User deleted successfully');
-          fetchData();
+          showToast('Pengguna berjaya dihapuskan');
+          fetchData('users');
         } catch (err) {
-          showToast('Failed to delete user', 'error');
+          showToast('Gagal menghapuskan pengguna', 'error');
         }
       }
     });
@@ -131,7 +142,7 @@ export default function Settings() {
         try {
           await api.deleteDepartment(id);
           showToast('Jabatan berjaya dihapuskan');
-          fetchData();
+          fetchData('departments');
         } catch (err) {
           showToast('Gagal menghapuskan jabatan', 'error');
         }
@@ -150,7 +161,7 @@ export default function Settings() {
         try {
           await api.deleteCategory(id);
           showToast('Kategori berjaya dihapuskan');
-          fetchData();
+          fetchData('categories');
         } catch (err) {
           showToast('Gagal menghapuskan kategori', 'error');
         }

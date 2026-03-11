@@ -38,3 +38,53 @@
     color: #0f172a;
   }
 }
+
+@layer utilities {
+  @keyframes loginFloat {
+    0%, 100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(0, -18px, 0) scale(1.04);
+    }
+  }
+
+  @keyframes loginFadeUp {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 28px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  .login-orb {
+    animation: loginFloat 8s ease-in-out infinite;
+  }
+
+  .login-orb-delay {
+    animation: loginFloat 10s ease-in-out infinite;
+    animation-delay: 1.4s;
+  }
+
+  .login-orb-slow {
+    animation: loginFloat 12s ease-in-out infinite;
+    animation-delay: 2.2s;
+  }
+
+  .login-fade-up {
+    animation: loginFadeUp 0.7s ease-out both;
+  }
+
+  .login-fade-up-delay {
+    animation: loginFadeUp 0.9s ease-out both;
+    animation-delay: 0.12s;
+  }
+
+  .login-card-enter {
+    animation: loginFadeUp 0.75s ease-out both;
+    animation-delay: 0.08s;
+  }
+}
