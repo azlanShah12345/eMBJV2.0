@@ -188,7 +188,7 @@ export default function Login({ onLogin }: LoginProps) {
 
                 <button
                   type="submit"
-                  disabled={loading || !!departmentsError || departments.length === 0}
+                  disabled={loading}
                   className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#15803d_0%,#16a34a_55%,#22c55e_100%)] px-4 py-3.5 font-bold text-white shadow-xl shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-emerald-600/25 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? (
@@ -261,7 +261,7 @@ export default function Login({ onLogin }: LoginProps) {
 
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || !!departmentsError || departments.length === 0}
                   className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#15803d_0%,#16a34a_55%,#22c55e_100%)] px-4 py-3.5 font-bold text-white shadow-xl shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-emerald-600/25 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? (
