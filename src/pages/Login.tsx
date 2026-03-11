@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { User } from '../types';
-import { ArrowRight, Lock, ShieldCheck, User as UserIcon } from 'lucide-react';
+import { ArrowRight, Lock, ShieldCheck, User as UserIcon, UserPlus, Building2 } from 'lucide-react';
 import { useToast } from '../components/Toast';
 
 interface LoginProps {
@@ -10,9 +10,34 @@ interface LoginProps {
 
 export default function Login({ onLogin }: LoginProps) {
   const { showToast } = useToast();
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [departments, setDepartments] = useState<{ id: number; name: string }[]>([]);
+  const [departmentsError, setDepartmentsError] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [registerForm, setRegisterForm] = useState({
+    username: '',
+    password: '',
+    department_id: '',
+  });
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (mode !== 'register') return;
+    const fetchDepartments = async () => {
+      try {
+        const data = await api.getPublicDepartments();
+        setDepartments(data.filter((item) => item.name !== 'HQ'));
+        setDepartmentsError('');
+      } catch (error) {
+        console.error(error);
+        setDepartments([]);
+        setDepartmentsError('Senarai jabatan tidak dapat dimuatkan buat masa ini. Sila cuba semula sebentar lagi.');
+        showToast('Gagal memuatkan senarai jabatan untuk pendaftaran akaun', 'error');
+      }
+    };
+    fetchDepartments();
+  }, [mode, showToast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -23,6 +48,29 @@ export default function Login({ onLogin }: LoginProps) {
       onLogin(data.user, data.token);
     } catch (err: any) {
       showToast(err.message || 'Nama pengguna atau kata laluan tidak sah', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (departmentsError || departments.length === 0) {
+      showToast('Pendaftaran tidak boleh diteruskan kerana senarai jabatan belum tersedia', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.register({
+        username: registerForm.username,
+        password: registerForm.password,
+        department_id: Number(registerForm.department_id),
+      });
+      showToast('Permohonan akaun berjaya dihantar dan sedang menunggu kelulusan HQ');
+      setRegisterForm({ username: '', password: '', department_id: '' });
+      setMode('login');
+    } catch (err: any) {
+      showToast(err.message || 'Gagal menghantar permohonan akaun', 'error');
     } finally {
       setLoading(false);
     }
@@ -54,8 +102,8 @@ export default function Login({ onLogin }: LoginProps) {
                 description: 'Mesyuarat, isu, dan tindakan susulan disusun mengikut jabatan serta tahun rekod.',
               },
               {
-                title: 'Status lebih jelas',
-                description: 'Draf, laporan dihantar, dan komunikasi dengan HQ dapat dilihat dalam satu aliran kerja.',
+                title: 'Kelulusan HQ terjamin',
+                description: 'Pendaftaran pengguna baharu dikawal melalui kelulusan pentadbir HQ sebelum akses diberikan.',
               },
               {
                 title: 'Tindakan lebih pantas',
@@ -75,75 +123,173 @@ export default function Login({ onLogin }: LoginProps) {
 
         <div className="relative bg-white/96 px-6 py-8 sm:px-10 sm:py-12">
           <div className="login-card-enter mx-auto w-full max-w-md">
-            <div className="mb-8 text-center lg:text-left">
+            <div className="mb-6 text-center lg:text-left">
               <div className="mx-auto flex h-18 w-18 items-center justify-center rounded-[28px] bg-[linear-gradient(135deg,#16a34a_0%,#22c55e_100%)] text-white shadow-xl shadow-emerald-600/25 lg:mx-0">
-                <ShieldCheck size={34} />
+                {mode === 'login' ? <ShieldCheck size={34} /> : <UserPlus size={34} />}
               </div>
-              <h2 className="mt-6 text-3xl font-black tracking-tight text-slate-900">Log masuk ke eMBJ</h2>
+              <h2 className="mt-6 text-3xl font-black tracking-tight text-slate-900">
+                {mode === 'login' ? 'Log masuk ke eMBJ' : 'Daftar Akaun Jabatan'}
+              </h2>
               <p className="mt-2 text-sm leading-6 text-slate-500">
-                Masukkan maklumat akaun anda untuk mengakses sistem pemantauan mesyuarat dan isu rasmi.
+                {mode === 'login'
+                  ? 'Masukkan maklumat akaun anda untuk mengakses sistem pemantauan mesyuarat dan isu rasmi.'
+                  : 'Hantar permohonan akaun baharu. Akses hanya akan diaktifkan selepas diluluskan oleh HQ.'}
               </p>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Nama Pengguna</label>
-                <div className="group relative">
-                  <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" size={18} />
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 py-3.5 outline-none transition-all focus:border-emerald-300 focus:bg-white focus:ring-4 focus:ring-emerald-100"
-                    placeholder="Masukkan nama pengguna"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-sm font-semibold text-slate-700">Kata Laluan</label>
-                <div className="group relative">
-                  <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" size={18} />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 py-3.5 outline-none transition-all focus:border-emerald-300 focus:bg-white focus:ring-4 focus:ring-emerald-100"
-                    placeholder="Masukkan kata laluan"
-                    required
-                  />
-                </div>
-              </div>
-
+            <div className="mb-6 flex rounded-2xl bg-slate-100 p-1">
               <button
-                type="submit"
-                disabled={loading}
-                className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#15803d_0%,#16a34a_55%,#22c55e_100%)] px-4 py-3.5 font-bold text-white shadow-xl shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-emerald-600/25 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                onClick={() => setMode('login')}
+                className={`flex-1 rounded-2xl px-4 py-2.5 text-sm font-bold transition-colors ${mode === 'login' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
               >
-                {loading ? (
-                  <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                    Sedang log masuk...
-                  </>
-                ) : (
-                  <>
-                    Teruskan ke Sistem
-                    <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
-                  </>
-                )}
+                Log Masuk
               </button>
-            </form>
+              <button
+                type="button"
+                onClick={() => setMode('register')}
+                className={`flex-1 rounded-2xl px-4 py-2.5 text-sm font-bold transition-colors ${mode === 'register' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+              >
+                Daftar Akaun
+              </button>
+            </div>
+
+            {mode === 'login' ? (
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Nama Pengguna</label>
+                  <div className="group relative">
+                    <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" size={18} />
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 py-3.5 outline-none transition-all focus:border-emerald-300 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+                      placeholder="Masukkan nama pengguna"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Kata Laluan</label>
+                  <div className="group relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" size={18} />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 py-3.5 outline-none transition-all focus:border-emerald-300 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+                      placeholder="Masukkan kata laluan"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading || !!departmentsError || departments.length === 0}
+                  className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#15803d_0%,#16a34a_55%,#22c55e_100%)] px-4 py-3.5 font-bold text-white shadow-xl shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-emerald-600/25 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      Sedang log masuk...
+                    </>
+                  ) : (
+                    <>
+                      Teruskan ke Sistem
+                      <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+                    </>
+                  )}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleRegister} className="space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Nama Pengguna</label>
+                  <div className="group relative">
+                    <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" size={18} />
+                    <input
+                      type="text"
+                      value={registerForm.username}
+                      onChange={(e) => setRegisterForm((current) => ({ ...current, username: e.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 py-3.5 outline-none transition-all focus:border-emerald-300 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+                      placeholder="Cipta nama pengguna"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Kata Laluan</label>
+                  <div className="group relative">
+                    <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" size={18} />
+                    <input
+                      type="password"
+                      value={registerForm.password}
+                      onChange={(e) => setRegisterForm((current) => ({ ...current, password: e.target.value }))}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 py-3.5 outline-none transition-all focus:border-emerald-300 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+                      placeholder="Sekurang-kurangnya 6 aksara"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-semibold text-slate-700">Jabatan</label>
+                  <div className="group relative">
+                    <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors group-focus-within:text-emerald-600" size={18} />
+                    <select
+                      value={registerForm.department_id}
+                      onChange={(e) => setRegisterForm((current) => ({ ...current, department_id: e.target.value }))}
+                      className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 py-3.5 outline-none transition-all focus:border-emerald-300 focus:bg-white focus:ring-4 focus:ring-emerald-100"
+                      required
+                    >
+                      <option value="">Pilih jabatan</option>
+                      {departments.map((department) => (
+                        <option key={department.id} value={department.id}>
+                          {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {departmentsError && (
+                    <p className="mt-2 text-sm font-medium text-rose-600">{departmentsError}</p>
+                  )}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="group flex w-full items-center justify-center gap-2 rounded-2xl bg-[linear-gradient(135deg,#15803d_0%,#16a34a_55%,#22c55e_100%)] px-4 py-3.5 font-bold text-white shadow-xl shadow-emerald-600/20 transition-all hover:-translate-y-0.5 hover:shadow-2xl hover:shadow-emerald-600/25 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? (
+                    <>
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                      Sedang menghantar...
+                    </>
+                  ) : (
+                    <>
+                      Hantar Permohonan Akaun
+                      <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+                    </>
+                  )}
+                </button>
+              </form>
+            )}
 
             <div className="mt-8 rounded-3xl border border-emerald-100 bg-emerald-50/70 px-5 py-4">
               <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Akses Rasmi</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                Sistem ini digunakan untuk pengurusan rekod mesyuarat MBJ, tindakan isu, dan penyelarasan laporan dengan HQ.
+                {mode === 'login'
+                  ? 'Sistem ini digunakan untuk pengurusan rekod mesyuarat MBJ, tindakan isu, dan penyelarasan laporan dengan HQ.'
+                  : 'Permohonan pendaftaran akan disemak oleh HQ. Akaun hanya boleh digunakan selepas status diluluskan.'}
               </p>
             </div>
 
             <div className="mt-8 text-center text-xs text-slate-400 lg:text-left">
-              <p>© 2026 eMBJ, Sarawak Civil Service</p>
+              <p>Hak Cipta 2026 eMBJ, Sarawak Civil Service</p>
               <p>Sistem rasmi pemantauan mesyuarat dan tindakan susulan</p>
             </div>
           </div>

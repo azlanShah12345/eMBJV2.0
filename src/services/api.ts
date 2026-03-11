@@ -28,8 +28,22 @@ export const api = {
     return handleResponse(res);
   },
 
+  async register(userData: { username: string; password: string; department_id: number }) {
+    const res = await fetch(`${API_BASE}/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(userData),
+    });
+    return handleResponse(res);
+  },
+
   async getDepartments(): Promise<Department[]> {
     const res = await fetch(`${API_BASE}/departments`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getPublicDepartments(): Promise<Department[]> {
+    const res = await fetch(`${API_BASE}/public/departments`);
     return handleResponse(res);
   },
 
@@ -232,6 +246,22 @@ export const api = {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(userData),
+    });
+    return handleResponse(res);
+  },
+
+  async approveUser(id: number) {
+    const res = await fetch(`${API_BASE}/users/${id}/approve`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  async rejectUser(id: number) {
+    const res = await fetch(`${API_BASE}/users/${id}/reject`, {
+      method: 'POST',
+      headers: getHeaders(),
     });
     return handleResponse(res);
   },

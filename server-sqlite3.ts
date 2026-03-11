@@ -49,6 +49,8 @@ async function startServer() {
       password TEXT NOT NULL, 
       role TEXT NOT NULL, 
       department_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'APPROVED',
+      requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(department_id) REFERENCES departments(id)
     );
     
@@ -110,7 +112,9 @@ async function startServer() {
     'ALTER TABLE meetings ADD COLUMN unlock_requested INTEGER DEFAULT 0',
     'ALTER TABLE meetings ADD COLUMN unlock_rejected INTEGER DEFAULT 0',
     'ALTER TABLE meetings ADD COLUMN delete_requested INTEGER DEFAULT 0',
-    'ALTER TABLE meetings ADD COLUMN delete_rejected INTEGER DEFAULT 0'
+    'ALTER TABLE meetings ADD COLUMN delete_rejected INTEGER DEFAULT 0',
+    "ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'APPROVED'",
+    "ALTER TABLE users ADD COLUMN requested_at TEXT"
   ];
 
   for (const sql of migrations) {
@@ -121,11 +125,14 @@ async function startServer() {
     }
   }
 
+  await db.run("UPDATE users SET status = 'APPROVED' WHERE status IS NULL OR TRIM(status) = ''");
+  await db.run("UPDATE users SET requested_at = CURRENT_TIMESTAMP WHERE requested_at IS NULL OR TRIM(requested_at) = ''");
+
   // Seed Admin User
   const adminExists = await db.get('SELECT * FROM users WHERE username = ?', 'admin');
   if (!adminExists) {
     const hash = bcrypt.hashSync('admin123', 10);
-    await db.run('INSERT INTO users (username, password, role) VALUES (?, ?, ?)', 'admin', hash, 'ADMIN');
+    await db.run('INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, ?)', 'admin', hash, 'ADMIN', 'APPROVED');
   }
 
   // Seed Departments
@@ -189,9 +196,19 @@ async function startServer() {
     if (!authHeader) return res.status(401).json({ error: 'No token provided' });
     const token = authHeader.split(' ')[1];
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      req.user = decoded;
-      next();
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      db.get('SELECT id, username, role, department_id, status FROM users WHERE id = ?', decoded.id)
+        .then((currentUser) => {
+          if (!currentUser) return res.status(401).json({ error: 'Pengguna tidak ditemui' });
+          if (currentUser.status !== 'APPROVED') {
+            return res.status(403).json({ error: 'Akses akaun ini telah dinyahaktifkan atau belum diluluskan' });
+          }
+          req.user = currentUser;
+          next();
+        })
+        .catch(() => {
+          res.status(401).json({ error: 'Pengesahan pengguna gagal' });
+        });
     } catch (err) {
       res.status(401).json({ error: 'Invalid token' });
     }
@@ -214,8 +231,41 @@ async function startServer() {
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, department_id: user.department_id }, JWT_SECRET);
-    res.json({ token, user: { id: user.id, username: user.username, role: user.role, department_id: user.department_id, department_name: user.department_name } });
+    if (user.status === 'PENDING') {
+      return res.status(403).json({ error: 'Permohonan akaun masih menunggu kelulusan HQ' });
+    }
+    if (user.status === 'REJECTED') {
+      return res.status(403).json({ error: 'Permohonan akaun telah ditolak. Sila hubungi HQ.' });
+    }
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, department_id: user.department_id, status: user.status }, JWT_SECRET, { expiresIn: '12h' });
+    res.json({ token, user: { id: user.id, username: user.username, role: user.role, department_id: user.department_id, department_name: user.department_name, status: user.status } });
+  });
+
+  app.post('/api/register', async (req, res) => {
+    const username = String(req.body.username || '').trim();
+    const password = String(req.body.password || '');
+    const departmentId = Number(req.body.department_id);
+    if (!username || !password || !departmentId || Number.isNaN(departmentId)) {
+      return res.status(400).json({ error: 'Nama pengguna, kata laluan, dan jabatan diperlukan' });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: 'Kata laluan mesti sekurang-kurangnya 6 aksara' });
+    }
+    const department = await db.get("SELECT id FROM departments WHERE id = ? AND name <> 'HQ'", departmentId);
+    if (!department) {
+      return res.status(400).json({ error: 'Jabatan yang dipilih tidak sah untuk pendaftaran akaun' });
+    }
+
+    const hash = bcrypt.hashSync(password, 10);
+    try {
+      const result = await db.run(
+        'INSERT INTO users (username, password, role, department_id, status, requested_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)',
+        username, hash, 'USER', departmentId, 'PENDING'
+      );
+      res.json({ id: result.lastID, success: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
   });
 
   app.post('/api/change-password', authenticate, async (req: any, res) => {
@@ -241,7 +291,12 @@ async function startServer() {
   });
 
   app.get('/api/users', authenticate, isAdmin, async (req, res) => {
-    const users = await db.all('SELECT u.id, u.username, u.role, u.department_id, d.name as department_name FROM users u LEFT JOIN departments d ON u.department_id = d.id');
+    const users = await db.all(`
+      SELECT u.id, u.username, u.role, u.department_id, d.name as department_name, u.status, u.requested_at
+      FROM users u
+      LEFT JOIN departments d ON u.department_id = d.id
+      ORDER BY CASE u.status WHEN 'PENDING' THEN 0 WHEN 'REJECTED' THEN 1 ELSE 2 END, datetime(u.requested_at) DESC, u.username
+    `);
     res.json(users);
   });
 
@@ -249,7 +304,7 @@ async function startServer() {
     const { username, password, role, department_id } = req.body;
     const hash = bcrypt.hashSync(password, 10);
     try {
-      const result = await db.run('INSERT INTO users (username, password, role, department_id) VALUES (?, ?, ?, ?)', username, hash, role, department_id);
+      const result = await db.run('INSERT INTO users (username, password, role, department_id, status, requested_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)', username, hash, role, department_id, 'APPROVED');
       res.json({ id: result.lastID });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -258,6 +313,16 @@ async function startServer() {
 
   app.delete('/api/users/:id', authenticate, isAdmin, async (req, res) => {
     await db.run('DELETE FROM users WHERE id = ?', req.params.id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/users/:id/approve', authenticate, isAdmin, async (req, res) => {
+    await db.run('UPDATE users SET status = ? WHERE id = ?', 'APPROVED', req.params.id);
+    res.json({ success: true });
+  });
+
+  app.post('/api/users/:id/reject', authenticate, isAdmin, async (req, res) => {
+    await db.run('UPDATE users SET status = ? WHERE id = ?', 'REJECTED', req.params.id);
     res.json({ success: true });
   });
 
@@ -279,6 +344,11 @@ async function startServer() {
   app.delete('/api/departments/:id', authenticate, isAdmin, async (req, res) => {
     await db.run('DELETE FROM departments WHERE id = ?', req.params.id);
     res.json({ success: true });
+  });
+
+  app.get('/api/public/departments', async (_req, res) => {
+    const departments = await db.all("SELECT * FROM departments WHERE name <> 'HQ' ORDER BY name");
+    res.json(departments);
   });
 
   app.get('/api/categories', authenticate, async (req, res) => {

@@ -4,6 +4,8 @@ export interface User {
   role: 'ADMIN' | 'USER';
   department_name: string;
   department_id: number;
+  status?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  requested_at?: string;
 }
 
 export interface Department {

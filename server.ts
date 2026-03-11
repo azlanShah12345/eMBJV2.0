@@ -57,6 +57,8 @@ async function startServer() {
       password TEXT NOT NULL, 
       role TEXT NOT NULL, 
       department_id INTEGER,
+      status TEXT NOT NULL DEFAULT 'APPROVED',
+      requested_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(department_id) REFERENCES departments(id) ON DELETE CASCADE
     );
     
@@ -112,6 +114,10 @@ async function startServer() {
   try { db.prepare("ALTER TABLE meetings ADD COLUMN unlock_requested INTEGER DEFAULT 0").run(); } catch(e) {}
   try { db.prepare("ALTER TABLE meetings ADD COLUMN delete_requested INTEGER DEFAULT 0").run(); } catch(e) {}
   try { db.prepare("ALTER TABLE meetings ADD COLUMN minit_path TEXT").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'APPROVED'").run(); } catch(e) {}
+  try { db.prepare("ALTER TABLE users ADD COLUMN requested_at TEXT").run(); } catch(e) {}
+  try { db.prepare("UPDATE users SET status = 'APPROVED' WHERE status IS NULL OR TRIM(status) = ''").run(); } catch(e) {}
+  try { db.prepare("UPDATE users SET requested_at = CURRENT_TIMESTAMP WHERE requested_at IS NULL OR TRIM(requested_at) = ''").run(); } catch(e) {}
 
   // Migration: Check if meetings table has ON DELETE SET NULL for created_by
   try {
@@ -163,10 +169,20 @@ async function startServer() {
               password TEXT NOT NULL, 
               role TEXT NOT NULL, 
               department_id INTEGER,
+              status TEXT NOT NULL DEFAULT 'APPROVED',
+              requested_at TEXT,
               FOREIGN KEY(department_id) REFERENCES departments(id) ON DELETE CASCADE
             );
-            INSERT INTO users_new (id, username, password, role, department_id)
-            SELECT id, username, password, role, department_id FROM users;
+            INSERT INTO users_new (id, username, password, role, department_id, status, requested_at)
+            SELECT
+              id,
+              username,
+              password,
+              role,
+              department_id,
+              COALESCE(status, 'APPROVED'),
+              COALESCE(requested_at, CURRENT_TIMESTAMP)
+            FROM users;
             DROP TABLE users;
             ALTER TABLE users_new RENAME TO users;
           `);
@@ -185,7 +201,7 @@ async function startServer() {
   const adminExists = db.prepare('SELECT * FROM users WHERE username = ?').get('admin');
   if (!adminExists) {
     const hash = bcrypt.hashSync('admin123', 10);
-    db.prepare('INSERT INTO users (username, password, role) VALUES (?, ?, ?)').run('admin', hash, 'ADMIN');
+    db.prepare('INSERT INTO users (username, password, role, status) VALUES (?, ?, ?, ?)').run('admin', hash, 'ADMIN', 'APPROVED');
   }
 
   // Seed a Regular User if not exists
@@ -247,8 +263,15 @@ async function startServer() {
     
     const token = authHeader.split(' ')[1];
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
-      req.user = decoded;
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      const currentUser = db.prepare('SELECT id, username, role, department_id, status FROM users WHERE id = ?').get(decoded.id);
+      if (!currentUser) {
+        return res.status(401).json({ error: 'Pengguna tidak ditemui' });
+      }
+      if (currentUser.status !== 'APPROVED') {
+        return res.status(403).json({ error: 'Akses akaun ini telah dinyahaktifkan atau belum diluluskan' });
+      }
+      req.user = currentUser;
       next();
     } catch (err) {
       res.status(401).json({ error: 'Invalid token' });
@@ -279,13 +302,20 @@ async function startServer() {
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
+    if (user.status === 'PENDING') {
+      return res.status(403).json({ error: 'Permohonan akaun masih menunggu kelulusan HQ' });
+    }
+    if (user.status === 'REJECTED') {
+      return res.status(403).json({ error: 'Permohonan akaun telah ditolak. Sila hubungi HQ.' });
+    }
 
     const token = jwt.sign({ 
       id: user.id, 
       username: user.username, 
       role: user.role,
-      department_id: user.department_id 
-    }, JWT_SECRET);
+      department_id: user.department_id,
+      status: user.status,
+    }, JWT_SECRET, { expiresIn: '12h' });
 
     res.json({ 
       token, 
@@ -294,17 +324,42 @@ async function startServer() {
         username: user.username, 
         role: user.role,
         department_id: user.department_id,
-        department_name: user.department_name
+        department_name: user.department_name,
+        status: user.status
       } 
     });
+  }));
+
+  app.post('/api/register', catchErrors((req: any, res: any) => {
+    const username = String(req.body.username || '').trim();
+    const password = String(req.body.password || '');
+    const departmentId = Number(req.body.department_id);
+    if (!username || !password || !departmentId || Number.isNaN(departmentId)) {
+      return res.status(400).json({ error: 'Nama pengguna, kata laluan, dan jabatan diperlukan' });
+    }
+    if (String(password).length < 6) {
+      return res.status(400).json({ error: 'Kata laluan mesti sekurang-kurangnya 6 aksara' });
+    }
+    const department = db.prepare("SELECT id FROM departments WHERE id = ? AND name <> 'HQ'").get(departmentId);
+    if (!department) {
+      return res.status(400).json({ error: 'Jabatan yang dipilih tidak sah untuk pendaftaran akaun' });
+    }
+
+    const hash = bcrypt.hashSync(password, 10);
+    const result = db.prepare(`
+      INSERT INTO users (username, password, role, department_id, status, requested_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).run(username, hash, 'USER', departmentId, 'PENDING');
+    res.json({ id: result.lastInsertRowid, success: true });
   }));
 
   // User Management
   app.get('/api/users', authenticate, isAdmin, catchErrors((req: any, res: any) => {
     const users = db.prepare(`
-      SELECT u.id, u.username, u.role, u.department_id, d.name as department_name 
+      SELECT u.id, u.username, u.role, u.department_id, d.name as department_name, u.status, u.requested_at
       FROM users u 
       LEFT JOIN departments d ON u.department_id = d.id
+      ORDER BY CASE u.status WHEN 'PENDING' THEN 0 WHEN 'REJECTED' THEN 1 ELSE 2 END, datetime(u.requested_at) DESC, u.username
     `).all();
     res.json(users);
   }));
@@ -312,12 +367,22 @@ async function startServer() {
   app.post('/api/users', authenticate, isAdmin, catchErrors((req: any, res: any) => {
     const { username, password, role, department_id } = req.body;
     const hash = bcrypt.hashSync(password, 10);
-    const result = db.prepare('INSERT INTO users (username, password, role, department_id) VALUES (?, ?, ?, ?)').run(username, hash, role, department_id);
+    const result = db.prepare('INSERT INTO users (username, password, role, department_id, status, requested_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)').run(username, hash, role, department_id, 'APPROVED');
     res.json({ id: result.lastInsertRowid });
   }));
 
   app.delete('/api/users/:id', authenticate, isAdmin, catchErrors((req: any, res: any) => {
     db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+    res.json({ success: true });
+  }));
+
+  app.post('/api/users/:id/approve', authenticate, isAdmin, catchErrors((req: any, res: any) => {
+    db.prepare('UPDATE users SET status = ? WHERE id = ?').run('APPROVED', req.params.id);
+    res.json({ success: true });
+  }));
+
+  app.post('/api/users/:id/reject', authenticate, isAdmin, catchErrors((req: any, res: any) => {
+    db.prepare('UPDATE users SET status = ? WHERE id = ?').run('REJECTED', req.params.id);
     res.json({ success: true });
   }));
 
@@ -336,6 +401,11 @@ async function startServer() {
   app.delete('/api/departments/:id', authenticate, isAdmin, catchErrors((req: any, res: any) => {
     db.prepare('DELETE FROM departments WHERE id = ?').run(req.params.id);
     res.json({ success: true });
+  }));
+
+  app.get('/api/public/departments', catchErrors((req: any, res: any) => {
+    const departments = db.prepare("SELECT * FROM departments WHERE name <> 'HQ' ORDER BY name").all();
+    res.json(departments);
   }));
 
   // Category Management
