@@ -46,8 +46,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     category: '',
     is_from_previous: false,
     title: '',
-    status: 'Belum Selesai' as const,
-    responsible_officer: ''
+    status: 'Belum Selesai' as const
   });
 
   useEffect(() => {
@@ -108,8 +107,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
         category: categories[0]?.name || '',
         is_from_previous: false,
         title: '',
-        status: 'Belum Selesai',
-        responsible_officer: ''
+        status: 'Belum Selesai'
       });
       showToast('Isu berjaya ditambah');
       fetchData();
@@ -767,27 +765,15 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
               <p className="text-slate-400 text-sm">Rekod isu baharu yang dibincangkan dalam mesyuarat ini.</p>
             </div>
             <form onSubmit={handleAddIssue} className="p-8 space-y-6">
-              <div className="grid grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Kategori</label>
-                  <select 
-                    value={newIssue.category}
-                    onChange={(e) => setNewIssue({...newIssue, category: e.target.value})}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Pegawai Bertanggungjawab</label>
-                  <input 
-                    type="text"
-                    value={newIssue.responsible_officer}
-                    onChange={(e) => setNewIssue({...newIssue, responsible_officer: e.target.value})}
-                    className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
-                    placeholder="Contoh: Ahmad bin Ali"
-                  />
-                </div>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Kategori</label>
+                <select 
+                  value={newIssue.category}
+                  onChange={(e) => setNewIssue({...newIssue, category: e.target.value})}
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                </select>
               </div>
 
               <div>

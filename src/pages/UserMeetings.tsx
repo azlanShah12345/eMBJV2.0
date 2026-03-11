@@ -18,7 +18,6 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
   const [selectedYear, setSelectedYear] = useState('');
   const [bil, setBil] = useState('Bil 1');
   const [tarikh, setTarikh] = useState('');
-  const [submissionMethod, setSubmissionMethod] = useState<'D' | 'E'>('E');
   const [file, setFile] = useState<File | null>(null);
 
   useEffect(() => {
@@ -57,7 +56,6 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
     formData.append('bil_mesyuarat', bil);
     formData.append('tarikh_mesyuarat', tarikh);
     formData.append('department_id', user.department_id.toString());
-    formData.append('submission_method', submissionMethod);
     if (file) formData.append('minit', file);
 
     try {
@@ -66,7 +64,6 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
       setIsModalOpen(false);
       setBil('Bil 1');
       setTarikh('');
-      setSubmissionMethod('E');
       setFile(null);
       showToast('Rekod mesyuarat berjaya diwujudkan');
       fetchMeetings();
@@ -221,8 +218,8 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
       ) : (
         <div className="space-y-8">
           {[
-            { title: 'Laporan Dihantar Ke HQ', subtitle: 'Rekod yang telah diserahkan sebagai rujukan rasmi HQ.', data: submittedMeetings, tone: 'emerald' },
             { title: 'Draf Dan Dalam Tindakan', subtitle: 'Rekod yang masih aktif untuk dikemas kini oleh jabatan.', data: draftMeetings, tone: 'slate' },
+            { title: 'Laporan Dihantar Ke HQ', subtitle: 'Rekod yang telah diserahkan sebagai rujukan rasmi HQ.', data: submittedMeetings, tone: 'emerald' },
           ].map((section) => (
             <div key={section.title} className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="mb-5 flex items-center justify-between gap-3">
@@ -284,15 +281,9 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
                           <span className="text-emerald-600">{meeting.completed_issues} selesai</span>
                         </div>
                       </div>
-                      <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-slate-50 p-3 text-xs">
-                        <div>
-                          <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Tahun</p>
-                          <p className="mt-1 font-semibold text-slate-700">{new Date(meeting.tarikh_mesyuarat).getFullYear()}</p>
-                        </div>
-                        <div>
-                          <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Kaedah</p>
-                          <p className="mt-1 font-semibold text-slate-700">{meeting.submission_method || '-'}</p>
-                        </div>
+                      <div className="mt-4 rounded-xl bg-slate-50 p-3 text-xs">
+                        <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Tahun</p>
+                        <p className="mt-1 font-semibold text-slate-700">{new Date(meeting.tarikh_mesyuarat).getFullYear()}</p>
                       </div>
                       <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 text-sm font-semibold text-emerald-600">
                         Lihat Butiran
@@ -345,17 +336,6 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none"
                 />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">Kaedah Hantar Minit</label>
-                <select
-                  value={submissionMethod}
-                  onChange={(e) => setSubmissionMethod(e.target.value as 'D' | 'E')}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  <option value="E">E - Emel</option>
-                  <option value="D">D - Salinan Keras / Pos</option>
-                </select>
               </div>
               <div className="flex gap-3 pt-4">
                 <button
