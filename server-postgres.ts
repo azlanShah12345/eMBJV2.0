@@ -31,6 +31,8 @@ const SUPABASE_SERVICE_ROLE_KEY = requireEnv('SUPABASE_SERVICE_ROLE_KEY');
 const SUPABASE_STORAGE_BUCKET = process.env.SUPABASE_STORAGE_BUCKET || 'meeting-minutes';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
+const DATABASE_CONNECT_RETRIES = Number(process.env.DATABASE_CONNECT_RETRIES || 6);
+const DATABASE_CONNECT_DELAY_MS = Number(process.env.DATABASE_CONNECT_DELAY_MS || 5000);
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
@@ -67,6 +69,36 @@ const normalizeMinitPath = (minitPath: string | null | undefined) => {
 const query = async <T = any>(text: string, params: any[] = []) => {
   const result = await pool.query<T>(text, params);
   return result;
+};
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const connectDatabaseWithRetry = async () => {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= DATABASE_CONNECT_RETRIES; attempt += 1) {
+    try {
+      await query('SELECT 1');
+      if (attempt > 1) {
+        console.log(`Sambungan database berjaya pada cubaan ke-${attempt}.`);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      const isLastAttempt = attempt === DATABASE_CONNECT_RETRIES;
+      const message = error instanceof Error ? error.message : String(error);
+
+      console.error(`Sambungan database gagal pada cubaan ke-${attempt}/${DATABASE_CONNECT_RETRIES}: ${message}`);
+
+      if (isLastAttempt) {
+        break;
+      }
+
+      await wait(DATABASE_CONNECT_DELAY_MS * attempt);
+    }
+  }
+
+  throw lastError;
 };
 
 const bootstrapDatabase = async () => {
@@ -195,6 +227,7 @@ const uploadMinutesToSupabase = async (file?: Express.Multer.File) => {
 };
 
 async function startServer() {
+  await connectDatabaseWithRetry();
   await bootstrapDatabase();
 
   const app = express();
