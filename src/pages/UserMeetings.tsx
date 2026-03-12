@@ -400,6 +400,7 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
                   onChange={(e) => setFile(e.target.files?.[0] || null)}
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none"
                 />
+                <p className="mt-2 text-xs text-slate-500">Saiz fail maksimum 25MB. Hanya fail PDF dibenarkan.</p>
               </div>
               <div className="flex gap-3 pt-4">
                 <button

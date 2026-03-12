@@ -174,6 +174,8 @@ async function startServer() {
       )
   `);
 
+  const MINIT_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+
   const storage = multer.diskStorage({
     destination: 'uploads/',
     filename: (req, file, cb) => {
@@ -181,7 +183,10 @@ async function startServer() {
       cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
     }
   });
-  const upload = multer({ storage });
+  const upload = multer({
+    storage,
+    limits: { fileSize: MINIT_UPLOAD_LIMIT_BYTES },
+  });
 
   app.use(cors());
   app.use(express.json());

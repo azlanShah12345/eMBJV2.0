@@ -267,13 +267,18 @@ async function startServer() {
     });
   }
 
+  const MINIT_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+
   const storage = multer.diskStorage({
     destination: 'uploads/',
     filename: (req, file, cb) => {
       cb(null, Date.now() + '-' + file.originalname);
     }
   });
-  const upload = multer({ storage });
+  const upload = multer({
+    storage,
+    limits: { fileSize: MINIT_UPLOAD_LIMIT_BYTES },
+  });
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
   

@@ -80,9 +80,9 @@ export default function Layout({ user, onLogout }: LayoutProps) {
     }`;
 
   return (
-    <div className="flex min-h-screen bg-transparent">
+    <div className="flex min-h-screen items-start bg-transparent">
       {/* Sidebar */}
-      <aside className={`${isSidebarOpen ? 'w-72' : 'w-24'} m-4 flex flex-col rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,#0f172a_0%,#16213a_52%,#1e293b_100%)] text-white shadow-2xl shadow-slate-950/15 transition-all duration-300`}>
+      <aside className={`${isSidebarOpen ? 'w-72' : 'w-24'} sticky top-4 m-4 flex h-[calc(100vh-2rem)] flex-col overflow-y-auto rounded-[28px] border border-white/10 bg-[linear-gradient(180deg,#0f172a_0%,#16213a_52%,#1e293b_100%)] text-white shadow-2xl shadow-slate-950/15 transition-all duration-300`}>
         <div className="flex items-center justify-between px-6 pb-5 pt-6">
           {isSidebarOpen && (
             <div>
@@ -211,7 +211,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto pr-4 pt-4">
+      <main className="min-w-0 flex-1 pr-4 pt-4">
         <header className="sticky top-4 z-10 mx-auto flex items-center justify-between rounded-[28px] border border-white/70 bg-white/85 px-8 py-4 shadow-lg shadow-slate-200/70 backdrop-blur">
           <h1 className="text-lg font-semibold text-slate-800">
             {user.role === 'ADMIN' ? 'Pentadbiran HQ' : `Jabatan: ${user.department_name}`}

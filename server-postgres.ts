@@ -43,9 +43,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+const MINIT_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: { fileSize: MINIT_UPLOAD_LIMIT_BYTES },
 });
 
 type AuthUser = {

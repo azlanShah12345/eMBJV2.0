@@ -1049,7 +1049,7 @@ export default function Dashboard() {
                 <Lock className="text-indigo-600" size={20} />
                 <h3 className="font-bold text-indigo-900 text-lg">Permohonan Buka Kunci</h3>
               </div>
-              <div className="space-y-3">
+              <div className="max-h-[24rem] space-y-3 overflow-y-auto pr-2">
                 {pendingUnlocks.map(m => (
                   <div key={m.id} className="bg-white p-4 rounded-xl border border-indigo-200 shadow-sm flex justify-between items-center">
                     <div>
@@ -1084,7 +1084,7 @@ export default function Dashboard() {
                 <Trash2 className="text-red-600" size={20} />
                 <h3 className="font-bold text-red-900 text-lg">Permohonan Hapus</h3>
               </div>
-              <div className="space-y-3">
+              <div className="max-h-[24rem] space-y-3 overflow-y-auto pr-2">
                 {pendingDeletes.map(m => (
                   <div key={m.id} className="bg-white p-4 rounded-xl border border-red-200 shadow-sm flex justify-between items-center">
                     <div>
@@ -1197,7 +1197,7 @@ export default function Dashboard() {
               {visibleStats.length} kategori aktif
             </div>
           </div>
-          <div className="mt-5 overflow-x-auto">
+          <div className="mt-5 max-h-[32rem] overflow-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-widest">
@@ -1257,7 +1257,7 @@ export default function Dashboard() {
             <h3 className="text-lg font-bold text-slate-900">Prestasi Jabatan</h3>
           </div>
           <p className="mt-1 text-sm text-slate-500">Ringkasan jabatan yang menyumbang laporan dalam skop semasa.</p>
-          <div className="mt-5 space-y-4">
+          <div className="mt-5 max-h-[32rem] space-y-4 overflow-y-auto pr-2">
             {departmentPerformance.length === 0 ? (
               <div className="rounded-2xl bg-slate-50 p-5 text-sm italic text-slate-400">
                 Tiada data prestasi jabatan yang sepadan dengan penapis yang dipilih.
@@ -1300,7 +1300,7 @@ export default function Dashboard() {
             {departmentPerformance.length} jabatan aktif
           </div>
         </div>
-        <div className="mt-6 space-y-5">
+        <div className="mt-6 max-h-[38rem] space-y-5 overflow-y-auto pr-2">
           {departmentPerformance.length === 0 ? (
             <div className="rounded-2xl bg-slate-50 p-5 text-sm italic text-slate-400">
               Tiada data jabatan untuk dipaparkan dalam graf trend.
@@ -1433,7 +1433,7 @@ export default function Dashboard() {
                 Tiada rekod berkaitan ditemui untuk kategori ini dalam skop semasa.
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <div className="grid max-h-[28rem] grid-cols-1 gap-3 overflow-y-auto pr-2 lg:grid-cols-2">
                 {relatedMeetings.map((meeting) => (
                   <Link
                     key={`drill-${meeting.id}`}
@@ -1467,7 +1467,7 @@ export default function Dashboard() {
             {submittedMeetings.length} rekod
           </span>
         </div>
-        <div className="overflow-x-auto">
+        <div className="max-h-[32rem] overflow-auto">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-widest">
@@ -1525,7 +1525,7 @@ export default function Dashboard() {
               {monthlyTrend.length} bulan aktif
             </div>
           </div>
-          <div className="mt-5 space-y-4">
+          <div className="mt-5 max-h-[32rem] space-y-4 overflow-y-auto pr-2">
             {monthlyTrend.length === 0 ? (
               <div className="rounded-2xl bg-slate-50 p-5 text-sm italic text-slate-400">
                 Tiada data trend bulanan yang sepadan dengan penapis yang dipilih.
@@ -1574,7 +1574,7 @@ export default function Dashboard() {
             <h3 className="text-lg font-bold text-slate-900">Keutamaan Belum Selesai</h3>
           </div>
           <p className="mt-1 text-sm text-slate-500">Kategori dengan baki isu belum selesai paling tinggi dalam skop semasa.</p>
-          <div className="mt-5 space-y-4">
+          <div className="mt-5 max-h-[32rem] space-y-4 overflow-y-auto pr-2">
             {unresolvedCategories.length === 0 ? (
               <div className="rounded-2xl bg-emerald-50 p-5 text-sm font-medium text-emerald-700">
                 Semua kategori dalam skop semasa telah selesai.
