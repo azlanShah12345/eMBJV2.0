@@ -33,10 +33,17 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 const DATABASE_CONNECT_RETRIES = Number(process.env.DATABASE_CONNECT_RETRIES || 6);
 const DATABASE_CONNECT_DELAY_MS = Number(process.env.DATABASE_CONNECT_DELAY_MS || 5000);
+const DATABASE_POOL_MAX = Number(process.env.DATABASE_POOL_MAX || 10);
+const DATABASE_IDLE_TIMEOUT_MS = Number(process.env.DATABASE_IDLE_TIMEOUT_MS || 30000);
+const DATABASE_CONNECTION_TIMEOUT_MS = Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS || 15000);
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
   ssl: process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
+  max: DATABASE_POOL_MAX,
+  idleTimeoutMillis: DATABASE_IDLE_TIMEOUT_MS,
+  connectionTimeoutMillis: DATABASE_CONNECTION_TIMEOUT_MS,
+  keepAlive: true,
 });
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -72,6 +79,47 @@ const query = async <T = any>(text: string, params: any[] = []) => {
   const result = await pool.query<T>(text, params);
   return result;
 };
+
+const asyncHandler = (handler: any) => (req: any, res: any, next: any) => {
+  Promise.resolve(handler(req, res, next)).catch(next);
+};
+
+const getErrorCodes = (error: unknown): string[] => {
+  if (!error || typeof error !== 'object') return [];
+
+  const codes = new Set<string>();
+  const candidate = error as any;
+  if (typeof candidate.code === 'string') {
+    codes.add(candidate.code);
+  }
+
+  if (Array.isArray(candidate.errors)) {
+    for (const nestedError of candidate.errors) {
+      if (nestedError && typeof nestedError === 'object' && typeof (nestedError as any).code === 'string') {
+        codes.add((nestedError as any).code);
+      }
+    }
+  }
+
+  return Array.from(codes);
+};
+
+const isDatabaseAvailabilityError = (error: unknown) => {
+  const transientCodes = new Set([
+    'ETIMEDOUT',
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'ENETUNREACH',
+    'EHOSTUNREACH',
+    '57P01',
+  ]);
+
+  return getErrorCodes(error).some((code) => transientCodes.has(code));
+};
+
+pool.on('error', (error) => {
+  console.error('Ralat pool PostgreSQL:', error);
+});
 
 const getRequestIp = (req: any) => {
   const forwardedFor = req.headers['x-forwarded-for'];
@@ -329,7 +377,10 @@ async function startServer() {
 
   app.use(cors());
   app.use(express.json());
-  app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  app.get('/api/health', asyncHandler(async (_req: any, res: any) => {
+    await query('SELECT 1');
+    res.json({ status: 'ok', database: 'connected' });
+  }));
 
   const authenticate = (req: any, res: any, next: any) => {
     const authHeader = req.headers.authorization;
@@ -369,7 +420,7 @@ async function startServer() {
     next();
   };
 
-  app.post('/api/login', async (req, res) => {
+  app.post('/api/login', asyncHandler(async (req, res) => {
     const { username, password } = req.body;
     const result = await query(`
       SELECT u.*, d.name AS department_name
@@ -427,9 +478,9 @@ async function startServer() {
         status: user.status,
       },
     });
-  });
+  }));
 
-  app.post('/api/register', async (req, res) => {
+  app.post('/api/register', asyncHandler(async (req, res) => {
     const username = String(req.body.username || '').trim();
     const password = String(req.body.password || '');
     const departmentId = Number(req.body.department_id);
@@ -464,9 +515,9 @@ async function startServer() {
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
-  });
+  }));
 
-  app.post('/api/change-password', authenticate, async (req: any, res) => {
+  app.post('/api/change-password', authenticate, asyncHandler(async (req: any, res) => {
     const { current_password, new_password } = req.body;
     if (!current_password || !new_password) {
       return res.status(400).json({ error: 'Current password and new password are required' });
@@ -492,9 +543,9 @@ async function startServer() {
       targetLabel: req.user.username,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.get('/api/audit-logs', authenticate, isAdmin, async (req, res) => {
+  app.get('/api/audit-logs', authenticate, isAdmin, asyncHandler(async (req, res) => {
     const { action, actor, date_from, date_to, limit } = req.query;
     const params: any[] = [];
     const filters: string[] = [];
@@ -545,9 +596,9 @@ async function startServer() {
     `, params);
 
     res.json(result.rows);
-  });
+  }));
 
-  app.get('/api/users', authenticate, isAdmin, async (_req, res) => {
+  app.get('/api/users', authenticate, isAdmin, asyncHandler(async (_req, res) => {
     const users = await query(`
       SELECT u.id, u.username, u.role, u.department_id, d.name AS department_name, u.status, u.requested_at
       FROM users u
@@ -555,9 +606,9 @@ async function startServer() {
       ORDER BY CASE u.status WHEN 'PENDING' THEN 0 WHEN 'REJECTED' THEN 1 ELSE 2 END, u.requested_at DESC, u.username
     `);
     res.json(users.rows);
-  });
+  }));
 
-  app.post('/api/users', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/users', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     const { username, password, role, department_id } = req.body;
     const hash = bcrypt.hashSync(password, 10);
     try {
@@ -577,9 +628,9 @@ async function startServer() {
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
-  });
+  }));
 
-  app.delete('/api/users/:id', authenticate, isAdmin, async (req: any, res) => {
+  app.delete('/api/users/:id', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     const targetUser = await query('SELECT username, role FROM users WHERE id = $1', [req.params.id]);
     await query('DELETE FROM users WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
@@ -591,9 +642,9 @@ async function startServer() {
       details: { role: targetUser.rows[0]?.role || null },
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/users/:id/approve', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/users/:id/approve', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     const targetUser = await query('SELECT username FROM users WHERE id = $1', [req.params.id]);
     await query('UPDATE users SET status = $1 WHERE id = $2', ['APPROVED', req.params.id]);
     await writeAuditLog(req, {
@@ -605,9 +656,9 @@ async function startServer() {
       details: { status: 'APPROVED' },
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/users/:id/reject', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/users/:id/reject', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     const targetUser = await query('SELECT username FROM users WHERE id = $1', [req.params.id]);
     await query('UPDATE users SET status = $1 WHERE id = $2', ['REJECTED', req.params.id]);
     await writeAuditLog(req, {
@@ -619,14 +670,14 @@ async function startServer() {
       details: { status: 'REJECTED' },
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.get('/api/departments', authenticate, async (_req, res) => {
+  app.get('/api/departments', authenticate, asyncHandler(async (_req, res) => {
     const departments = await query('SELECT * FROM departments ORDER BY name');
     res.json(departments.rows);
-  });
+  }));
 
-  app.post('/api/departments', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/departments', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     try {
       const result = await query('INSERT INTO departments (name) VALUES ($1) RETURNING id', [req.body.name]);
       await writeAuditLog(req, {
@@ -640,9 +691,9 @@ async function startServer() {
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
-  });
+  }));
 
-  app.delete('/api/departments/:id', authenticate, isAdmin, async (req: any, res) => {
+  app.delete('/api/departments/:id', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     const department = await query('SELECT name FROM departments WHERE id = $1', [req.params.id]);
     await query('DELETE FROM departments WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
@@ -653,19 +704,19 @@ async function startServer() {
       targetLabel: department.rows[0]?.name || `Jabatan #${req.params.id}`,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.get('/api/public/departments', async (_req, res) => {
+  app.get('/api/public/departments', asyncHandler(async (_req, res) => {
     const departments = await query('SELECT * FROM departments WHERE name <> $1 ORDER BY name', ['HQ']);
     res.json(departments.rows);
-  });
+  }));
 
-  app.get('/api/categories', authenticate, async (_req, res) => {
+  app.get('/api/categories', authenticate, asyncHandler(async (_req, res) => {
     const categories = await query('SELECT * FROM categories ORDER BY name');
     res.json(categories.rows);
-  });
+  }));
 
-  app.post('/api/categories', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/categories', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     try {
       const result = await query('INSERT INTO categories (name) VALUES ($1) RETURNING id', [req.body.name]);
       await writeAuditLog(req, {
@@ -679,9 +730,9 @@ async function startServer() {
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
-  });
+  }));
 
-  app.delete('/api/categories/:id', authenticate, isAdmin, async (req: any, res) => {
+  app.delete('/api/categories/:id', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     const category = await query('SELECT name FROM categories WHERE id = $1', [req.params.id]);
     await query('DELETE FROM categories WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
@@ -692,9 +743,9 @@ async function startServer() {
       targetLabel: category.rows[0]?.name || `Kategori #${req.params.id}`,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.get('/api/meetings', authenticate, async (req: any, res) => {
+  app.get('/api/meetings', authenticate, asyncHandler(async (req: any, res) => {
     let { department_id } = req.query;
     if (req.user.role !== 'ADMIN') {
       department_id = req.user.department_id;
@@ -728,9 +779,9 @@ async function startServer() {
       completed_issues: Number(meeting.completed_issues || 0),
       minit_path: normalizeMinitPath(meeting.minit_path),
     })));
-  });
+  }));
 
-  app.post('/api/meetings', authenticate, upload.single('minit'), async (req: any, res) => {
+  app.post('/api/meetings', authenticate, upload.single('minit'), asyncHandler(async (req: any, res) => {
     const { bil_mesyuarat, tarikh_mesyuarat, submission_method } = req.body;
     const departmentId = req.user.role === 'ADMIN'
       ? Number(req.body.department_id || req.user.department_id)
@@ -771,9 +822,9 @@ async function startServer() {
     });
 
     res.json({ id: result.rows[0].id });
-  });
+  }));
 
-  app.delete('/api/meetings/:id', authenticate, async (req: any, res) => {
+  app.delete('/api/meetings/:id', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -795,9 +846,9 @@ async function startServer() {
       details: { department_id: meeting.department_id },
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/meetings/:id/request-delete', authenticate, async (req: any, res) => {
+  app.post('/api/meetings/:id/request-delete', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -814,9 +865,9 @@ async function startServer() {
       targetLabel: meeting.bil_mesyuarat,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/meetings/:id/approve-delete', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/meetings/:id/approve-delete', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT bil_mesyuarat, department_id FROM meetings WHERE id = $1', [req.params.id]);
     await query('DELETE FROM meetings WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
@@ -828,9 +879,9 @@ async function startServer() {
       details: { department_id: meetingResult.rows[0]?.department_id || null },
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/meetings/:id/reject-delete', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/meetings/:id/reject-delete', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     await query('UPDATE meetings SET delete_requested = 0, delete_rejected = 1 WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
       actor: req.user,
@@ -840,9 +891,9 @@ async function startServer() {
       targetLabel: `Mesyuarat #${req.params.id}`,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.get('/api/meetings/:id', authenticate, async (req: any, res) => {
+  app.get('/api/meetings/:id', authenticate, asyncHandler(async (req: any, res) => {
     const result = await query(`
       SELECT
         m.*,
@@ -869,9 +920,9 @@ async function startServer() {
       completed_issues: Number(meeting.completed_issues || 0),
       minit_path: normalizeMinitPath(meeting.minit_path),
     });
-  });
+  }));
 
-  app.get('/api/meetings/:id/issues', authenticate, async (req: any, res) => {
+  app.get('/api/meetings/:id/issues', authenticate, asyncHandler(async (req: any, res) => {
     const issueResult = await query(`
       SELECT
         i.*,
@@ -892,9 +943,9 @@ async function startServer() {
       ...issue,
       is_from_previous: Number(issue.is_from_previous || 0),
     })));
-  });
+  }));
 
-  app.post('/api/meetings/:id/issues', authenticate, async (req: any, res) => {
+  app.post('/api/meetings/:id/issues', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -928,9 +979,9 @@ async function startServer() {
     });
 
     res.json({ id: result.rows[0].id });
-  });
+  }));
 
-  app.get('/api/meetings/:id/messages', authenticate, async (req: any, res) => {
+  app.get('/api/meetings/:id/messages', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -956,9 +1007,9 @@ async function startServer() {
     `, [req.params.id]);
 
     res.json(result.rows);
-  });
+  }));
 
-  app.post('/api/meetings/:id/messages', authenticate, async (req: any, res) => {
+  app.post('/api/meetings/:id/messages', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -984,9 +1035,9 @@ async function startServer() {
       details: { meeting_id: req.params.id, preview: message.slice(0, 120) },
     });
     res.json({ id: result.rows[0].id });
-  });
+  }));
 
-  app.post('/api/meetings/:id/messages/read', authenticate, async (req: any, res) => {
+  app.post('/api/meetings/:id/messages/read', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -1002,9 +1053,9 @@ async function startServer() {
     `, [req.user.id, req.params.id]);
 
     res.json({ success: true });
-  });
+  }));
 
-  app.get('/api/messages/unread-summary', authenticate, async (req: any, res) => {
+  app.get('/api/messages/unread-summary', authenticate, asyncHandler(async (req: any, res) => {
     const params: any[] = [req.user.id];
     const departmentFilter = req.user.role === 'ADMIN' ? '' : 'AND m.department_id = $2';
     if (req.user.role !== 'ADMIN') {
@@ -1061,9 +1112,9 @@ async function startServer() {
       total_unread: items.reduce((sum: number, item: any) => sum + item.unread_count, 0),
       items,
     });
-  });
+  }));
 
-  app.patch('/api/issues/:id', authenticate, async (req: any, res) => {
+  app.patch('/api/issues/:id', authenticate, asyncHandler(async (req: any, res) => {
     const issueResult = await query(`
       SELECT i.*, m.department_id, m.is_locked
       FROM issues i
@@ -1103,9 +1154,9 @@ async function startServer() {
       details: req.body,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.delete('/api/issues/:id', authenticate, async (req: any, res) => {
+  app.delete('/api/issues/:id', authenticate, asyncHandler(async (req: any, res) => {
     const issueResult = await query(`
       SELECT i.*, m.department_id, m.is_locked
       FROM issues i
@@ -1130,9 +1181,9 @@ async function startServer() {
       details: { meeting_id: issue.meeting_id },
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.patch('/api/meetings/:id/lock', authenticate, isAdmin, async (req: any, res) => {
+  app.patch('/api/meetings/:id/lock', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     await query('UPDATE meetings SET is_locked = 1, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
       actor: req.user,
@@ -1142,9 +1193,9 @@ async function startServer() {
       targetLabel: `Mesyuarat #${req.params.id}`,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/meetings/:id/submit', authenticate, async (req: any, res) => {
+  app.post('/api/meetings/:id/submit', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -1164,9 +1215,9 @@ async function startServer() {
       targetLabel: meeting.bil_mesyuarat,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/meetings/:id/request-unlock', authenticate, async (req: any, res) => {
+  app.post('/api/meetings/:id/request-unlock', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
     if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
@@ -1183,9 +1234,9 @@ async function startServer() {
       targetLabel: meeting.bil_mesyuarat,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/meetings/:id/approve-unlock', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/meetings/:id/approve-unlock', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     await query('UPDATE meetings SET is_locked = 0, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
       actor: req.user,
@@ -1195,9 +1246,9 @@ async function startServer() {
       targetLabel: `Mesyuarat #${req.params.id}`,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.post('/api/meetings/:id/reject-unlock', authenticate, isAdmin, async (req: any, res) => {
+  app.post('/api/meetings/:id/reject-unlock', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
     await query('UPDATE meetings SET unlock_requested = 0, unlock_rejected = 1 WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
       actor: req.user,
@@ -1207,9 +1258,9 @@ async function startServer() {
       targetLabel: `Mesyuarat #${req.params.id}`,
     });
     res.json({ success: true });
-  });
+  }));
 
-  app.get('/api/stats', authenticate, async (req: any, res) => {
+  app.get('/api/stats', authenticate, asyncHandler(async (req: any, res) => {
     let { department_id, bil_mesyuarat, category } = req.query;
     if (req.user.role !== 'ADMIN') {
       department_id = req.user.department_id;
@@ -1249,9 +1300,9 @@ async function startServer() {
       selesai: Number(row.selesai || 0),
       belum_selesai: Number(row.belum_selesai || 0),
     })));
-  });
+  }));
 
-  app.get('/api/reports/pengelasan', authenticate, async (req: any, res) => {
+  app.get('/api/reports/pengelasan', authenticate, asyncHandler(async (req: any, res) => {
     let { department_id, bil_mesyuarat, category } = req.query;
     if (req.user.role !== 'ADMIN') {
       department_id = req.user.department_id;
@@ -1362,6 +1413,24 @@ async function startServer() {
         ...totals,
         overall: totals.previous_selesai + totals.previous_belum + totals.new_selesai + totals.new_belum,
       },
+    });
+  }));
+
+  app.use((error: any, _req: any, res: any, _next: any) => {
+    if (res.headersSent) {
+      return;
+    }
+
+    if (isDatabaseAvailabilityError(error)) {
+      console.error('Sambungan database tidak tersedia:', error);
+      return res.status(503).json({
+        error: 'Sambungan ke pangkalan data tidak tersedia buat sementara waktu. Sila cuba sebentar lagi.',
+      });
+    }
+
+    console.error('Ralat pelayan tidak dijangka:', error);
+    return res.status(500).json({
+      error: 'Ralat pelayan dalaman telah berlaku.',
     });
   });
 
