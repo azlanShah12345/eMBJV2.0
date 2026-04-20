@@ -84,24 +84,46 @@ const asyncHandler = (handler: any) => (req: any, res: any, next: any) => {
   Promise.resolve(handler(req, res, next)).catch(next);
 };
 
-const getErrorCodes = (error: unknown): string[] => {
-  if (!error || typeof error !== 'object') return [];
-
+const getErrorDetails = (error: unknown) => {
   const codes = new Set<string>();
-  const candidate = error as any;
-  if (typeof candidate.code === 'string') {
-    codes.add(candidate.code);
-  }
+  const messages = new Set<string>();
+  const queue: unknown[] = [error];
+  const visited = new Set<object>();
 
-  if (Array.isArray(candidate.errors)) {
-    for (const nestedError of candidate.errors) {
-      if (nestedError && typeof nestedError === 'object' && typeof (nestedError as any).code === 'string') {
-        codes.add((nestedError as any).code);
-      }
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== 'object') {
+      continue;
+    }
+
+    if (visited.has(current)) {
+      continue;
+    }
+
+    visited.add(current);
+    const candidate = current as any;
+
+    if (typeof candidate.code === 'string' && candidate.code.trim()) {
+      codes.add(candidate.code.trim());
+    }
+
+    if (typeof candidate.message === 'string' && candidate.message.trim()) {
+      messages.add(candidate.message.trim().toLowerCase());
+    }
+
+    if (candidate.cause) {
+      queue.push(candidate.cause);
+    }
+
+    if (Array.isArray(candidate.errors)) {
+      queue.push(...candidate.errors);
     }
   }
 
-  return Array.from(codes);
+  return {
+    codes: Array.from(codes),
+    messages: Array.from(messages),
+  };
 };
 
 const isDatabaseAvailabilityError = (error: unknown) => {
@@ -113,8 +135,18 @@ const isDatabaseAvailabilityError = (error: unknown) => {
     'EHOSTUNREACH',
     '57P01',
   ]);
+  const transientMessageFragments = [
+    'connection terminated due to connection timeout',
+    'connection terminated unexpectedly',
+    'connect etimedout',
+    'connection timeout',
+  ];
+  const { codes, messages } = getErrorDetails(error);
 
-  return getErrorCodes(error).some((code) => transientCodes.has(code));
+  return (
+    codes.some((code) => transientCodes.has(code)) ||
+    messages.some((message) => transientMessageFragments.some((fragment) => message.includes(fragment)))
+  );
 };
 
 pool.on('error', (error) => {
