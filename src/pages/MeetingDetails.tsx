@@ -2,9 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
 import { Issue, MeetingMessage, User } from '../types';
-import { ArrowLeft, Plus, Trash2, CheckCircle2, Circle, Lock, Download, FileText, XCircle, AlertTriangle, Send, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, CheckCircle2, Circle, Lock, Download, FileText, XCircle, AlertTriangle, Send, MessageSquare, Sparkles } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
+import { getSuggestedIssueCategory } from '../utils/issueCategorySuggestion';
 
 interface MeetingDetailsProps {
   user: User;
@@ -369,6 +370,13 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
 
   if (loading) return <div className="text-center py-12">Sedang memuatkan butiran...</div>;
   if (!meeting) return <div className="text-center py-12">Mesyuarat tidak ditemui.</div>;
+
+  const issueCategorySuggestion = getSuggestedIssueCategory(
+    newIssue.title,
+    categories.map((item) => item.name)
+  );
+  const hasIssueTitle = newIssue.title.trim().length > 0;
+  const isSuggestionApplied = issueCategorySuggestion?.category === newIssue.category;
 
   const processSteps = [
     {
@@ -771,6 +779,10 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
             <div className="bg-slate-800 p-6 text-white">
               <h3 className="text-xl font-bold">Tambah Isu Mesyuarat</h3>
               <p className="text-slate-400 text-sm">Rekod isu baharu yang dibincangkan dalam mesyuarat ini.</p>
+              <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+                <Sparkles size={14} />
+                Cadangan kategori pintar berjalan secara tempatan tanpa API berbayar.
+              </p>
             </div>
             <form onSubmit={handleAddIssue} className="p-8 space-y-6">
               <div>
@@ -782,6 +794,37 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                 >
                   {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                 </select>
+                {issueCategorySuggestion ? (
+                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="font-bold">Cadangan kategori pintar: {issueCategorySuggestion.category}</p>
+                        <p className="mt-1 text-emerald-800">
+                          Berdasarkan padanan kata kunci: {issueCategorySuggestion.matchedKeywords.join(', ')}.
+                        </p>
+                      </div>
+                      {!isSuggestionApplied && (
+                        <button
+                          type="button"
+                          onClick={() => setNewIssue((current) => ({ ...current, category: issueCategorySuggestion.category }))}
+                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 font-bold text-white transition-colors hover:bg-emerald-700"
+                        >
+                          <Sparkles size={16} />
+                          Gunakan Cadangan
+                        </button>
+                      )}
+                    </div>
+                    {isSuggestionApplied && (
+                      <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                        Cadangan ini sedang digunakan pada kategori semasa.
+                      </p>
+                    )}
+                  </div>
+                ) : hasIssueTitle ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Tiada cadangan kategori automatik ditemui untuk teks semasa. Anda masih boleh pilih kategori secara manual.
+                  </div>
+                ) : null}
               </div>
 
               <div>
