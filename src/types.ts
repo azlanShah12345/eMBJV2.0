@@ -45,6 +45,21 @@ export interface Issue {
   updated_at: string;
 }
 
+export interface SimilarIssue {
+  id: number;
+  meeting_id: number;
+  meeting_label: string;
+  meeting_date: string;
+  department_name: string;
+  category: string;
+  title: string;
+  status: 'Selesai' | 'Belum Selesai';
+  is_from_previous: number;
+  updated_at: string;
+  similarity_score: number;
+  is_same_meeting: boolean;
+}
+
 export interface MeetingMessage {
   id: number;
   meeting_id: number;

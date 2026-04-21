@@ -1,4 +1,4 @@
-import { User, Department, Meeting, Issue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog } from '../types';
+import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog } from '../types';
 
 const API_BASE = '/api';
 
@@ -81,6 +81,12 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(issue),
     });
+    return handleResponse(res);
+  },
+
+  async getSimilarIssues(meetingId: number, title: string): Promise<SimilarIssue[]> {
+    const query = new URLSearchParams({ title }).toString();
+    const res = await fetch(`${API_BASE}/meetings/${meetingId}/similar-issues?${query}`, { headers: getHeaders() });
     return handleResponse(res);
   },
 
