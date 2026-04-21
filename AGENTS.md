@@ -48,3 +48,12 @@
 - Jika pengguna meminta semakan isu, fokus dahulu pada punca, kesan, dan pembetulan.
 - Jika pengguna meminta perubahan dan ia boleh dibuat terus dengan selamat, laksanakan perubahan itu.
 - Jika perubahan besar dibuat, nyatakan fail utama yang terlibat dan cara pengguna hendak menguji hasilnya.
+- Gunakan [otak.md](./otak.md) sebagai rujukan ringkas tambahan untuk konteks projek semasa, keputusan penting, dan perkara yang perlu diingati antara tugasan.
+
+## Ingatan Projek Semasa
+- Untuk pengguna jabatan, `Papan Pemuka` dan modul `Mesyuarat` telah diasingkan. Fungsi `Mesyuarat Baharu`, draf, dan pengurusan rekod tidak boleh dicampurkan semula ke dalam dashboard pengguna kecuali atas arahan baharu pengguna.
+- Laluan pengguna biasa kini menggunakan menu khas `Mesyuarat`, manakala dashboard pengguna kekal sebagai paparan ringkasan jabatan.
+- Sistem chat dalaman telah diimplementasikan mengikut konteks rekod mesyuarat, bukan sebagai chat umum sistem.
+- Chat mesyuarat berada dalam halaman butiran mesyuarat dan digunakan untuk komunikasi antara jabatan dan HQ yang berkaitan terus dengan rekod tersebut.
+- Notifikasi mesej belum dibaca telah diimplementasikan dalam header menggunakan status baca per pengguna. Jangan gantikan dengan kiraan frontend sementara jika tiada arahan baharu.
+- Sebelum perubahan besar berkaitan chat, notifikasi, dashboard pengguna, atau aliran mesyuarat, teruskan amalan membuat backup yang boleh dipulihkan dalam folder `backup/`.

@@ -33,6 +33,7 @@ export default function Dashboard() {
 
   // Filters
   const [deptId, setDeptId] = useState('');
+  const [selectedYear, setSelectedYear] = useState('');
   const [bil, setBil] = useState('');
   const [category, setCategory] = useState('');
   const [showExports, setShowExports] = useState(false);
@@ -71,6 +72,28 @@ export default function Dashboard() {
   }, []);
 
   useEffect(() => {
+    const availableYears = Array.from<number>(
+      new Set(
+        meetings
+          .filter((meeting) => meeting.is_locked === 1)
+          .map((meeting) => new Date(meeting.tarikh_mesyuarat).getFullYear())
+          .filter((year) => !Number.isNaN(year))
+      )
+    ).sort((a, b) => b - a);
+
+    if (availableYears.length === 0) {
+      if (selectedYear) {
+        setSelectedYear('');
+      }
+      return;
+    }
+
+    if (!selectedYear || !availableYears.includes(Number(selectedYear))) {
+      setSelectedYear(String(availableYears[0]));
+    }
+  }, [meetings, selectedYear]);
+
+  useEffect(() => {
     const refreshDashboard = () => {
       fetchInitialData();
       fetchStats();
@@ -83,7 +106,7 @@ export default function Dashboard() {
       window.clearInterval(intervalId);
       window.removeEventListener('focus', refreshDashboard);
     };
-  }, [deptId, bil, category]);
+  }, [deptId, selectedYear, bil, category]);
 
   useEffect(() => {
     if (category && !categories.some((item) => item.name === category)) {
@@ -93,7 +116,7 @@ export default function Dashboard() {
 
   useEffect(() => {
     fetchStats();
-  }, [deptId, bil, category]);
+  }, [deptId, selectedYear, bil, category]);
 
   const fetchInitialData = async () => {
     try {
@@ -202,6 +225,7 @@ export default function Dashboard() {
     try {
       const data = await api.getStats({ 
         department_id: deptId ? Number(deptId) : undefined, 
+        year: selectedYear ? Number(selectedYear) : undefined,
         bil_mesyuarat: bil || undefined,
         category: category || undefined,
       });
@@ -245,6 +269,7 @@ export default function Dashboard() {
   const submittedMeetings = meetings.filter((meeting) => {
     if (meeting.is_locked !== 1) return false;
     if (deptId && Number(meeting.department_id) !== Number(deptId)) return false;
+    if (selectedYear && String(new Date(meeting.tarikh_mesyuarat).getFullYear()) !== selectedYear) return false;
     if (bil && meeting.bil_mesyuarat !== bil) return false;
     if (category) {
       const meetingCategories = (meeting.issue_categories || '')
@@ -258,16 +283,28 @@ export default function Dashboard() {
   const totalIssues = submittedMeetings.reduce((acc, meeting) => acc + Number(meeting.total_issues || 0), 0);
   const totalSelesai = submittedMeetings.reduce((acc, meeting) => acc + Number(meeting.completed_issues || 0), 0);
   const completionRate = totalIssues > 0 ? (totalSelesai / totalIssues) * 100 : 0;
+  const analyticsYears = Array.from<number>(
+    new Set(
+      meetings
+        .filter((meeting) => meeting.is_locked === 1)
+        .map((meeting) => new Date(meeting.tarikh_mesyuarat).getFullYear())
+        .filter((year) => !Number.isNaN(year))
+    )
+  ).sort((a, b) => b - a);
   const activeDepartmentName = departments.find((item) => item.id === Number(deptId))?.name || 'Semua Jabatan';
+  const activeYearLabel = selectedYear || 'Semua Tahun';
   const activeMeetingLabel = bil || 'Semua Mesyuarat';
   const activeCategoryLabel = category || 'Semua Kategori';
   const submittedMeetingsForLampiranA = meetings
     .filter((meeting) => meeting.is_locked === 1)
     .filter((meeting) => !deptId || Number(meeting.department_id) === Number(deptId))
+    .filter((meeting) => !selectedYear || String(new Date(meeting.tarikh_mesyuarat).getFullYear()) === selectedYear)
     .sort((a, b) => a.department_name.localeCompare(b.department_name) || a.bil_mesyuarat.localeCompare(b.bil_mesyuarat));
-  const reportYear = submittedMeetingsForLampiranA[0]?.tarikh_mesyuarat
-    ? new Date(submittedMeetingsForLampiranA[0].tarikh_mesyuarat).getFullYear()
-    : new Date().getFullYear();
+  const reportYear = selectedYear
+    ? Number(selectedYear)
+    : submittedMeetingsForLampiranA[0]?.tarikh_mesyuarat
+      ? new Date(submittedMeetingsForLampiranA[0].tarikh_mesyuarat).getFullYear()
+      : new Date().getFullYear();
   const lampiranARows = departments
     .filter((department) => !deptId || department.id === Number(deptId))
     .map((department) => {
@@ -622,6 +659,7 @@ export default function Dashboard() {
     try {
       const report = await api.getPengelasanReport({
         department_id: deptId ? Number(deptId) : undefined,
+        year: selectedYear ? Number(selectedYear) : undefined,
         bil_mesyuarat: bil || undefined,
         category: category || undefined,
       });
@@ -942,13 +980,28 @@ export default function Dashboard() {
             <p className="text-sm text-slate-500">Gunakan penapis untuk semak prestasi mengikut jabatan, mesyuarat, atau kategori.</p>
           </div>
           <button 
-            onClick={() => { setDeptId(''); setBil(''); setCategory(''); }}
+            onClick={() => { setDeptId(''); setSelectedYear(analyticsYears[0] ? String(analyticsYears[0]) : ''); setBil(''); setCategory(''); }}
             className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Tetapkan Semula Penapis
           </button>
         </div>
         <div className="flex flex-wrap gap-6 items-end">
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+            <Building2 size={14} /> Tahun Laporan
+          </label>
+          <select
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(e.target.value)}
+            className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
+          >
+            {analyticsYears.length === 0 && <option value="">Tiada Tahun</option>}
+            {analyticsYears.map((year) => (
+              <option key={year} value={year}>{year}</option>
+            ))}
+          </select>
+        </div>
         <div className="flex-1 min-w-[200px]">
           <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
             <Users size={14} /> Jabatan
@@ -996,7 +1049,7 @@ export default function Dashboard() {
       <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="rounded-xl bg-slate-50 p-4">
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Skop Semasa</p>
-            <p className="mt-2 text-sm font-semibold text-slate-800">{activeDepartmentName} | {activeMeetingLabel} | {activeCategoryLabel}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-800">{activeYearLabel} | {activeDepartmentName} | {activeMeetingLabel} | {activeCategoryLabel}</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-4">
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Laporan Sepadan</p>
@@ -1007,8 +1060,17 @@ export default function Dashboard() {
             <p className="mt-2 text-sm font-semibold text-slate-800">{visibleStats.length} kategori mempunyai data</p>
           </div>
         </div>
-        {(deptId || bil || category) && (
+        {(deptId || bil || category || (selectedYear && analyticsYears[0] && String(analyticsYears[0]) !== selectedYear)) && (
           <div className="mt-4 flex flex-wrap gap-3">
+            {selectedYear && analyticsYears[0] && String(analyticsYears[0]) !== selectedYear && (
+              <button
+                type="button"
+                onClick={() => setSelectedYear(analyticsYears[0] ? String(analyticsYears[0]) : '')}
+                className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
+              >
+                Buang penapis tahun
+              </button>
+            )}
             {deptId && (
               <button
                 type="button"
@@ -1395,7 +1457,7 @@ export default function Dashboard() {
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-6 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div>
-              <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Fokus Drill-In</p>
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Fokus Terperinci</p>
               <h3 className="mt-2 text-2xl font-black text-slate-900">{category}</h3>
               <p className="mt-2 max-w-2xl text-sm text-slate-600">
                 Ringkasan ini memaparkan laporan yang berkaitan secara terus dengan kategori yang sedang dipilih.

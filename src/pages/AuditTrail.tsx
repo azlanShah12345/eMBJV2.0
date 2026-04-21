@@ -25,7 +25,7 @@ export default function AuditTrail() {
       setLogs(data);
     } catch (error) {
       console.error(error);
-      showToast('Gagal memuatkan audit trail', 'error');
+      showToast('Gagal memuatkan jejak audit', 'error');
     } finally {
       setLoading(false);
     }
@@ -39,7 +39,7 @@ export default function AuditTrail() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Audit Trail</h2>
+          <h2 className="text-2xl font-bold text-slate-900">Jejak Audit</h2>
           <p className="text-slate-500">Semakan tindakan pengguna dan pentadbir untuk rekod sistem eMBJ.</p>
         </div>
         <button
@@ -115,12 +115,12 @@ export default function AuditTrail() {
             onClick={() => {
               setFilters({ actor: '', action: '', date_from: '', date_to: '' });
               setTimeout(() => {
-                api.getAuditLogs({ limit: 200 }).then(setLogs).catch(() => showToast('Gagal memuatkan audit trail', 'error'));
+                api.getAuditLogs({ limit: 200 }).then(setLogs).catch(() => showToast('Gagal memuatkan jejak audit', 'error'));
               }, 0);
             }}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50"
           >
-            Reset
+            Tetapkan Semula
           </button>
         </div>
       </div>

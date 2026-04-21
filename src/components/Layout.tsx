@@ -99,7 +99,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
           {isSidebarOpen && (
             <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-50 shadow-inner">
               <p className="font-semibold">Navigasi utama</p>
-              <p className="mt-1 text-xs text-emerald-100/80">Tab aktif dipaparkan dengan latar putih supaya lebih jelas dilihat.</p>
+              <p className="mt-1 text-xs text-emerald-100/80">Menu aktif dipaparkan dengan latar putih supaya lebih jelas dilihat.</p>
             </div>
           )}
         </div>
@@ -161,7 +161,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
                   </div>
                   {isSidebarOpen && (
                     <div className="min-w-0 flex-1">
-                      <span className="block text-sm font-bold">Audit Trail</span>
+                      <span className="block text-sm font-bold">Jejak Audit</span>
                       <span className={`block text-xs ${isActive ? 'text-slate-500' : 'text-slate-300/80'}`}>Log tindakan sistem</span>
                     </div>
                   )}

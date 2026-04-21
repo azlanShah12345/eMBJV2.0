@@ -364,7 +364,7 @@ export default function Settings() {
                     value={newCat}
                     onChange={(e) => setNewCat(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
-                    placeholder="e.g. Kebajikan"
+                    placeholder="contoh: Kebajikan"
                   />
                 </div>
                 <button 
