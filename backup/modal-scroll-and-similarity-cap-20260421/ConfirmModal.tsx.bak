@@ -16,8 +16,8 @@ export default function ConfirmModal({
   isOpen,
   title,
   message,
-  confirmText = 'Teruskan',
-  cancelText = 'Batal',
+  confirmText = 'Confirm',
+  cancelText = 'Cancel',
   onConfirm,
   onCancel,
   isDanger = false
@@ -25,9 +25,9 @@ export default function ConfirmModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl animate-in zoom-in-95 duration-200">
-        <div className="overflow-y-auto p-6">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isDanger ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>
               <AlertTriangle size={24} />
@@ -44,7 +44,7 @@ export default function ConfirmModal({
           <p className="text-slate-600 leading-relaxed">{message}</p>
         </div>
         
-        <div className="flex shrink-0 gap-3 justify-end border-t border-slate-200 bg-slate-50 p-4">
+        <div className="bg-slate-50 p-4 flex gap-3 justify-end">
           <button
             onClick={onCancel}
             className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 transition-colors"

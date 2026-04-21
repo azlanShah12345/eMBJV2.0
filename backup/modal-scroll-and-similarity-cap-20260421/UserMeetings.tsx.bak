@@ -367,47 +367,45 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
 
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
-          <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="shrink-0 bg-slate-800 p-6 text-white">
+          <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="bg-slate-800 p-6 text-white">
               <h3 className="text-xl font-bold">Daftar Mesyuarat Baharu</h3>
               <p className="text-sm text-slate-400">Masukkan butiran mesyuarat MBJ.</p>
             </div>
-            <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
-              <div className="flex-1 space-y-4 overflow-y-auto p-6">
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">Bilangan Mesyuarat</label>
-                  <select
-                    value={bil}
-                    onChange={(e) => setBil(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
-                  >
-                    <option>Bil 1</option>
-                    <option>Bil 2</option>
-                    <option>Bil 3</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">Tarikh Mesyuarat</label>
-                  <input
-                    type="date"
-                    required
-                    value={tarikh}
-                    onChange={(e) => setTarikh(e.target.value)}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-sm font-semibold text-slate-700">Minit Mesyuarat (PDF)</label>
-                  <input
-                    type="file"
-                    accept=".pdf"
-                    onChange={(e) => setFile(e.target.files?.[0] || null)}
-                    className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none"
-                  />
-                  <p className="mt-2 text-xs text-slate-500">Saiz fail maksimum 25MB. Hanya fail PDF dibenarkan.</p>
-                </div>
+            <form onSubmit={handleSubmit} className="space-y-4 p-6">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Bilangan Mesyuarat</label>
+                <select
+                  value={bil}
+                  onChange={(e) => setBil(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
+                >
+                  <option>Bil 1</option>
+                  <option>Bil 2</option>
+                  <option>Bil 3</option>
+                </select>
               </div>
-              <div className="flex shrink-0 gap-3 border-t border-slate-200 bg-white p-6">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Tarikh Mesyuarat</label>
+                <input
+                  type="date"
+                  required
+                  value={tarikh}
+                  onChange={(e) => setTarikh(e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700">Minit Mesyuarat (PDF)</label>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => setFile(e.target.files?.[0] || null)}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none"
+                />
+                <p className="mt-2 text-xs text-slate-500">Saiz fail maksimum 25MB. Hanya fail PDF dibenarkan.</p>
+              </div>
+              <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
