@@ -203,6 +203,58 @@ const getDepartmentName = async (departmentId?: number | null) => {
   return result.rows[0]?.name || null;
 };
 
+const getMeetingAccessRecord = async (meetingId: string | number) => {
+  const result = await query<{
+    id: number;
+    bil_mesyuarat: string;
+    department_id: number;
+    is_locked: number;
+  }>(
+    'SELECT id, bil_mesyuarat, department_id, is_locked FROM meetings WHERE id = $1',
+    [meetingId]
+  );
+  return result.rows[0] || null;
+};
+
+const normalizeIssueCategory = async (category: unknown) => {
+  const normalized = String(category || '').trim();
+  if (!normalized) {
+    throw new Error('Kategori isu diperlukan');
+  }
+
+  const categoryResult = await query<{ name: string }>(
+    'SELECT name FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1',
+    [normalized]
+  );
+
+  if (categoryResult.rowCount === 0) {
+    throw new Error('Kategori isu tidak sah mengikut senarai rasmi');
+  }
+
+  return String(categoryResult.rows[0].name || '').trim();
+};
+
+const normalizeIssueStatus = (status: unknown) => {
+  const normalized = String(status || '').trim();
+  if (!['Selesai', 'Belum Selesai'].includes(normalized)) {
+    throw new Error('Status isu tidak sah');
+  }
+  return normalized as 'Selesai' | 'Belum Selesai';
+};
+
+const normalizeIssueTitle = (title: unknown) => {
+  const normalized = String(title || '').trim();
+  if (!normalized) {
+    throw new Error('Tajuk isu diperlukan');
+  }
+  return normalized;
+};
+
+const normalizeResponsibleOfficer = (responsibleOfficer: unknown) => {
+  const normalized = String(responsibleOfficer || '').trim();
+  return normalized || null;
+};
+
 const writeAuditLog = async (
   req: any,
   options: {
@@ -456,7 +508,7 @@ async function startServer() {
 
   const authenticate = (req: any, res: any, next: any) => {
     const authHeader = req.headers.authorization;
-    if (!authHeader) return res.status(401).json({ error: 'No token provided' });
+    if (!authHeader) return res.status(401).json({ error: 'Token akses tidak diberikan' });
     const token = authHeader.split(' ')[1];
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as AuthUser;
@@ -483,12 +535,12 @@ async function startServer() {
         res.status(401).json({ error: 'Pengesahan pengguna gagal' });
       });
     } catch (_error) {
-      res.status(401).json({ error: 'Invalid token' });
+      res.status(401).json({ error: 'Token akses tidak sah' });
     }
   };
 
   const isAdmin = (req: any, res: any, next: any) => {
-    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Admin access required' });
+    if (req.user.role !== 'ADMIN') return res.status(403).json({ error: 'Akses pentadbir diperlukan' });
     next();
   };
 
@@ -503,7 +555,7 @@ async function startServer() {
 
     const user = result.rows[0] as any;
     if (!user || !bcrypt.compareSync(password, user.password)) {
-      return res.status(401).json({ error: 'Invalid credentials' });
+      return res.status(401).json({ error: 'Nama pengguna atau kata laluan tidak sah' });
     }
     if (user.status === 'PENDING') {
       return res.status(403).json({ error: 'Permohonan akaun masih menunggu kelulusan HQ' });
@@ -592,17 +644,17 @@ async function startServer() {
   app.post('/api/change-password', authenticate, asyncHandler(async (req: any, res) => {
     const { current_password, new_password } = req.body;
     if (!current_password || !new_password) {
-      return res.status(400).json({ error: 'Current password and new password are required' });
+      return res.status(400).json({ error: 'Kata laluan semasa dan kata laluan baharu diperlukan' });
     }
     if (String(new_password).length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+      return res.status(400).json({ error: 'Kata laluan baharu mesti sekurang-kurangnya 6 aksara' });
     }
 
     const userResult = await query('SELECT id, password FROM users WHERE id = $1', [req.user.id]);
     const user = userResult.rows[0] as any;
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) return res.status(404).json({ error: 'Pengguna tidak ditemui' });
     if (!bcrypt.compareSync(current_password, user.password)) {
-      return res.status(400).json({ error: 'Current password is incorrect' });
+      return res.status(400).json({ error: 'Kata laluan semasa tidak tepat' });
     }
 
     const hash = bcrypt.hashSync(new_password, 10);
@@ -858,6 +910,40 @@ async function startServer() {
     const departmentId = req.user.role === 'ADMIN'
       ? Number(req.body.department_id || req.user.department_id)
       : Number(req.user.department_id);
+    const meetingLabel = String(bil_mesyuarat || '').trim();
+    const meetingDate = String(tarikh_mesyuarat || '').trim();
+    const meetingYear = new Date(meetingDate).getFullYear();
+
+    if (!meetingLabel || !meetingDate || Number.isNaN(meetingYear)) {
+      return res.status(400).json({ error: 'Bilangan mesyuarat dan tarikh mesyuarat diperlukan' });
+    }
+
+    if (!['Bil 1', 'Bil 2', 'Bil 3'].includes(meetingLabel)) {
+      return res.status(400).json({ error: 'Bilangan mesyuarat tidak sah' });
+    }
+
+    if (!['D', 'E'].includes(String(submission_method || ''))) {
+      return res.status(400).json({ error: 'Kaedah penghantaran minit mesti sama ada D atau E' });
+    }
+
+    const duplicateMeeting = await query(
+      `
+      SELECT id
+      FROM meetings
+      WHERE department_id = $1
+        AND bil_mesyuarat = $2
+        AND EXTRACT(YEAR FROM tarikh_mesyuarat) = $3
+      LIMIT 1
+      `,
+      [departmentId, meetingLabel, meetingYear]
+    );
+
+    if (duplicateMeeting.rowCount > 0) {
+      return res.status(409).json({
+        error: `Rekod ${meetingLabel} bagi tahun ${meetingYear} untuk jabatan ini telah wujud`,
+      });
+    }
+
     const minitPath = await uploadMinutesToSupabase(req.file || undefined);
 
     const result = await query(
@@ -877,7 +963,7 @@ async function startServer() {
       VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, 0)
       RETURNING id
       `,
-      [bil_mesyuarat, tarikh_mesyuarat, departmentId, req.user.id, minitPath, submission_method || null]
+      [meetingLabel, meetingDate, departmentId, req.user.id, minitPath, submission_method]
     );
 
     await writeAuditLog(req, {
@@ -885,11 +971,12 @@ async function startServer() {
       action: 'CREATE_MEETING',
       entityType: 'MEETING',
       entityId: result.rows[0].id,
-      targetLabel: bil_mesyuarat,
+      targetLabel: meetingLabel,
       details: {
-        tarikh_mesyuarat,
+        tarikh_mesyuarat: meetingDate,
         department_id: departmentId,
         has_minutes: Boolean(minitPath),
+        submission_method,
       },
     });
 
@@ -899,13 +986,13 @@ async function startServer() {
   app.delete('/api/meetings/:id', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
 
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
     if (req.user.role !== 'ADMIN' && meeting.is_locked) {
-      return res.status(403).json({ error: 'Meeting is locked. Request delete permission from HQ.' });
+      return res.status(403).json({ error: 'Mesyuarat telah dikunci. Sila mohon kebenaran hapus daripada HQ.' });
     }
 
     await query('DELETE FROM meetings WHERE id = $1', [req.params.id]);
@@ -923,9 +1010,9 @@ async function startServer() {
   app.post('/api/meetings/:id/request-delete', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
 
     await query('UPDATE meetings SET delete_requested = 1, delete_rejected = 0 WHERE id = $1', [req.params.id]);
@@ -981,9 +1068,9 @@ async function startServer() {
     `, [req.params.id]);
 
     const meeting = result.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
 
     res.json({
@@ -995,21 +1082,21 @@ async function startServer() {
   }));
 
   app.get('/api/meetings/:id/issues', authenticate, asyncHandler(async (req: any, res) => {
-    const issueResult = await query(`
-      SELECT
-        i.*,
-        m.department_id,
-        m.is_locked
-      FROM issues i
-      JOIN meetings m ON m.id = i.meeting_id
-      WHERE i.meeting_id = $1
-      ORDER BY i.id ASC
-    `, [req.params.id]);
-
-    const meetingDepartmentId = issueResult.rows[0]?.department_id;
-    if (meetingDepartmentId && req.user.role !== 'ADMIN' && Number(meetingDepartmentId) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+    const meeting = await getMeetingAccessRecord(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
+
+    const issueResult = await query(
+      `
+      SELECT *
+      FROM issues
+      WHERE meeting_id = $1
+      ORDER BY id ASC
+      `,
+      [req.params.id]
+    );
 
     res.json(issueResult.rows.map((issue: any) => ({
       ...issue,
@@ -1018,22 +1105,33 @@ async function startServer() {
   }));
 
   app.post('/api/meetings/:id/issues', authenticate, asyncHandler(async (req: any, res) => {
-    const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
-    const meeting = meetingResult.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    const meeting = await getMeetingAccessRecord(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
-    if (meeting.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
+    if (meeting.is_locked) return res.status(403).json({ error: 'Mesyuarat telah dikunci' });
 
     const { category, title, status, responsible_officer, is_from_previous } = req.body;
+    const normalizedCategory = await normalizeIssueCategory(category);
+    const normalizedTitle = normalizeIssueTitle(title);
+    const normalizedStatus = normalizeIssueStatus(status);
+    const normalizedResponsibleOfficer = normalizeResponsibleOfficer(responsible_officer);
+
     const result = await query(
       `
       INSERT INTO issues (meeting_id, category, is_from_previous, title, status, responsible_officer)
       VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING id
       `,
-      [req.params.id, category, is_from_previous ? 1 : 0, title, status, responsible_officer || null]
+      [
+        req.params.id,
+        normalizedCategory,
+        is_from_previous ? 1 : 0,
+        normalizedTitle,
+        normalizedStatus,
+        normalizedResponsibleOfficer,
+      ]
     );
 
     await writeAuditLog(req, {
@@ -1041,11 +1139,11 @@ async function startServer() {
       action: 'CREATE_ISSUE',
       entityType: 'ISSUE',
       entityId: result.rows[0].id,
-      targetLabel: title,
+      targetLabel: normalizedTitle,
       details: {
         meeting_id: req.params.id,
-        category,
-        status,
+        category: normalizedCategory,
+        status: normalizedStatus,
         is_from_previous: is_from_previous ? 1 : 0,
       },
     });
@@ -1056,9 +1154,9 @@ async function startServer() {
   app.get('/api/meetings/:id/messages', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
 
     const result = await query(`
@@ -1084,9 +1182,9 @@ async function startServer() {
   app.post('/api/meetings/:id/messages', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
 
     const message = String(req.body.message || '').trim();
@@ -1112,9 +1210,9 @@ async function startServer() {
   app.post('/api/meetings/:id/messages/read', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT id, department_id FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
 
     await query(`
@@ -1195,11 +1293,11 @@ async function startServer() {
     `, [req.params.id]);
     const issue = issueResult.rows[0] as any;
 
-    if (!issue) return res.status(404).json({ error: 'Issue not found' });
+    if (!issue) return res.status(404).json({ error: 'Isu tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(issue.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
-    if (issue.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
+    if (issue.is_locked) return res.status(403).json({ error: 'Mesyuarat telah dikunci' });
 
     const updates: string[] = [];
     const params: any[] = [];
@@ -1208,10 +1306,10 @@ async function startServer() {
       updates.push(`${column} = $${params.length}`);
     };
 
-    if (req.body.status !== undefined) pushUpdate('status', req.body.status);
-    if (req.body.title !== undefined) pushUpdate('title', req.body.title);
-    if (req.body.category !== undefined) pushUpdate('category', req.body.category);
-    if (req.body.responsible_officer !== undefined) pushUpdate('responsible_officer', req.body.responsible_officer);
+    if (req.body.status !== undefined) pushUpdate('status', normalizeIssueStatus(req.body.status));
+    if (req.body.title !== undefined) pushUpdate('title', normalizeIssueTitle(req.body.title));
+    if (req.body.category !== undefined) pushUpdate('category', await normalizeIssueCategory(req.body.category));
+    if (req.body.responsible_officer !== undefined) pushUpdate('responsible_officer', normalizeResponsibleOfficer(req.body.responsible_officer));
     if (req.body.is_from_previous !== undefined) pushUpdate('is_from_previous', req.body.is_from_previous ? 1 : 0);
     pushUpdate('updated_at', new Date().toISOString());
 
@@ -1237,11 +1335,11 @@ async function startServer() {
     `, [req.params.id]);
     const issue = issueResult.rows[0] as any;
 
-    if (!issue) return res.status(404).json({ error: 'Issue not found' });
+    if (!issue) return res.status(404).json({ error: 'Isu tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(issue.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
-    if (issue.is_locked) return res.status(403).json({ error: 'Meeting is locked' });
+    if (issue.is_locked) return res.status(403).json({ error: 'Mesyuarat telah dikunci' });
 
     await query('DELETE FROM issues WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
@@ -1270,9 +1368,9 @@ async function startServer() {
   app.post('/api/meetings/:id/submit', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
 
     await query(
@@ -1292,9 +1390,9 @@ async function startServer() {
   app.post('/api/meetings/:id/request-unlock', authenticate, asyncHandler(async (req: any, res) => {
     const meetingResult = await query('SELECT * FROM meetings WHERE id = $1', [req.params.id]);
     const meeting = meetingResult.rows[0] as any;
-    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
     if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Access denied' });
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
     }
 
     await query('UPDATE meetings SET unlock_requested = 1, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
@@ -1333,7 +1431,7 @@ async function startServer() {
   }));
 
   app.get('/api/stats', authenticate, asyncHandler(async (req: any, res) => {
-    let { department_id, bil_mesyuarat, category } = req.query;
+    let { department_id, year, bil_mesyuarat, category } = req.query;
     if (req.user.role !== 'ADMIN') {
       department_id = req.user.department_id;
     }
@@ -1343,6 +1441,10 @@ async function startServer() {
     if (department_id) {
       params.push(Number(department_id));
       filters.push(`m.department_id = $${params.length}`);
+    }
+    if (year) {
+      params.push(Number(year));
+      filters.push(`EXTRACT(YEAR FROM m.tarikh_mesyuarat) = $${params.length}`);
     }
     if (bil_mesyuarat) {
       params.push(String(bil_mesyuarat));
@@ -1375,7 +1477,7 @@ async function startServer() {
   }));
 
   app.get('/api/reports/pengelasan', authenticate, asyncHandler(async (req: any, res) => {
-    let { department_id, bil_mesyuarat, category } = req.query;
+    let { department_id, year, bil_mesyuarat, category } = req.query;
     if (req.user.role !== 'ADMIN') {
       department_id = req.user.department_id;
     }
@@ -1385,6 +1487,10 @@ async function startServer() {
     if (department_id) {
       params.push(Number(department_id));
       filters.push(`m.department_id = $${params.length}`);
+    }
+    if (year) {
+      params.push(Number(year));
+      filters.push(`EXTRACT(YEAR FROM m.tarikh_mesyuarat) = $${params.length}`);
     }
     if (bil_mesyuarat) {
       params.push(String(bil_mesyuarat));
@@ -1479,7 +1585,7 @@ async function startServer() {
     res.json({
       department_name: departmentResult.rows[0]?.name || 'Semua Jabatan',
       meeting_label: bil_mesyuarat ? String(bil_mesyuarat) : 'Semua Mesyuarat',
-      report_year: new Date().getFullYear(),
+      report_year: year ? Number(year) : new Date().getFullYear(),
       rows,
       totals: {
         ...totals,

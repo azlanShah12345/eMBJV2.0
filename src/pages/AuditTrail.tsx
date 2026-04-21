@@ -4,6 +4,55 @@ import { AuditLog } from '../types';
 import { Activity, CalendarRange, Search } from 'lucide-react';
 import { useToast } from '../components/Toast';
 
+const ACTION_LABELS: Record<string, string> = {
+  LOGIN: 'Log Masuk',
+  REGISTER_ACCOUNT: 'Daftar Akaun',
+  CHANGE_PASSWORD: 'Tukar Kata Laluan',
+  CREATE_USER: 'Cipta Pengguna',
+  DELETE_USER: 'Padam Pengguna',
+  APPROVE_USER: 'Luluskan Pengguna',
+  REJECT_USER: 'Tolak Pengguna',
+  CREATE_DEPARTMENT: 'Cipta Jabatan',
+  DELETE_DEPARTMENT: 'Padam Jabatan',
+  CREATE_CATEGORY: 'Cipta Kategori',
+  DELETE_CATEGORY: 'Padam Kategori',
+  CREATE_MEETING: 'Cipta Mesyuarat',
+  DELETE_MEETING: 'Padam Mesyuarat',
+  REQUEST_DELETE_MEETING: 'Mohon Padam Mesyuarat',
+  APPROVE_DELETE_MEETING: 'Luluskan Padam Mesyuarat',
+  REJECT_DELETE_MEETING: 'Tolak Padam Mesyuarat',
+  CREATE_ISSUE: 'Cipta Isu',
+  UPDATE_ISSUE: 'Kemaskini Isu',
+  DELETE_ISSUE: 'Padam Isu',
+  SEND_MEETING_MESSAGE: 'Hantar Mesej Mesyuarat',
+  LOCK_MEETING: 'Kunci Mesyuarat',
+  SUBMIT_MEETING_TO_HQ: 'Hantar Mesyuarat ke HQ',
+  REQUEST_UNLOCK_MEETING: 'Mohon Buka Kunci Mesyuarat',
+  APPROVE_UNLOCK_MEETING: 'Luluskan Buka Kunci Mesyuarat',
+  REJECT_UNLOCK_MEETING: 'Tolak Buka Kunci Mesyuarat',
+};
+
+const MODULE_LABELS: Record<string, string> = {
+  AUTH: 'Pengesahan',
+  USER: 'Pengguna',
+  DEPARTMENT: 'Jabatan',
+  CATEGORY: 'Kategori',
+  MEETING: 'Mesyuarat',
+  ISSUE: 'Isu',
+  MEETING_MESSAGE: 'Mesej Mesyuarat',
+};
+
+const formatAuditCode = (value: string) =>
+  value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0) + part.slice(1).toLowerCase())
+    .join(' ');
+
+const getAuditActionLabel = (action: string) => ACTION_LABELS[action] || formatAuditCode(action);
+
+const getAuditModuleLabel = (module: string) => MODULE_LABELS[module] || formatAuditCode(module);
+
 export default function AuditTrail() {
   const { showToast } = useToast();
   const [logs, setLogs] = useState<AuditLog[]>([]);
@@ -25,7 +74,7 @@ export default function AuditTrail() {
       setLogs(data);
     } catch (error) {
       console.error(error);
-      showToast('Gagal memuatkan audit trail', 'error');
+      showToast('Gagal memuatkan jejak audit', 'error');
     } finally {
       setLoading(false);
     }
@@ -39,7 +88,7 @@ export default function AuditTrail() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">Audit Trail</h2>
+          <h2 className="text-2xl font-bold text-slate-900">Jejak Audit</h2>
           <p className="text-slate-500">Semakan tindakan pengguna dan pentadbir untuk rekod sistem eMBJ.</p>
         </div>
         <button
@@ -69,13 +118,18 @@ export default function AuditTrail() {
           </div>
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">Tindakan</label>
-            <input
-              type="text"
+            <select
               value={filters.action}
               onChange={(e) => setFilters((current) => ({ ...current, action: e.target.value }))}
-              placeholder="Contoh: APPROVE_USER"
               className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-500"
-            />
+            >
+              <option value="">Semua tindakan</option>
+              {Object.entries(ACTION_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
           </div>
           <div>
             <label className="mb-2 block text-sm font-semibold text-slate-700">Dari Tarikh</label>
@@ -115,12 +169,12 @@ export default function AuditTrail() {
             onClick={() => {
               setFilters({ actor: '', action: '', date_from: '', date_to: '' });
               setTimeout(() => {
-                api.getAuditLogs({ limit: 200 }).then(setLogs).catch(() => showToast('Gagal memuatkan audit trail', 'error'));
+                api.getAuditLogs({ limit: 200 }).then(setLogs).catch(() => showToast('Gagal memuatkan jejak audit', 'error'));
               }, 0);
             }}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-600 transition-colors hover:bg-slate-50"
           >
-            Reset
+            Tetapkan Semula
           </button>
         </div>
       </div>
@@ -163,11 +217,11 @@ export default function AuditTrail() {
                       </p>
                     </td>
                     <td className="px-5 py-4">
-                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
-                        {log.action}
+                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-bold tracking-[0.08em] text-emerald-700">
+                        {getAuditActionLabel(log.action)}
                       </span>
                     </td>
-                    <td className="px-5 py-4 text-sm font-medium text-slate-700">{log.entity_type}</td>
+                    <td className="px-5 py-4 text-sm font-medium text-slate-700">{getAuditModuleLabel(log.entity_type)}</td>
                     <td className="px-5 py-4 text-sm text-slate-700">
                       {log.target_label || '-'}
                       {log.entity_id ? <p className="mt-1 text-xs text-slate-400">ID: {log.entity_id}</p> : null}

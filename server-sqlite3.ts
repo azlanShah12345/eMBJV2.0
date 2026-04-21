@@ -8,10 +8,13 @@ import { open } from 'sqlite';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const JWT_SECRET = 'mbj-secret-key-2024';
+const JWT_SECRET = process.env.JWT_SECRET || 'development-only-change-me';
 
 const normalizeMinitPath = (minitPath: string | null | undefined) => {
   if (!minitPath) return null;

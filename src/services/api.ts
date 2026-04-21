@@ -12,8 +12,8 @@ const getHeaders = () => {
 
 const handleResponse = async (res: Response) => {
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `Request failed with status ${res.status}`);
+    const error = await res.json().catch(() => ({ error: 'Ralat tidak diketahui' }));
+    throw new Error(error.error || `Permintaan gagal dengan status ${res.status}`);
   }
   return res.json();
 };
@@ -213,7 +213,7 @@ export const api = {
     return handleResponse(res);
   },
 
-  async getStats(params: { department_id?: number; bil_mesyuarat?: string; category?: string }): Promise<CategoryStats[]> {
+  async getStats(params: { department_id?: number; bil_mesyuarat?: string; category?: string; year?: number }): Promise<CategoryStats[]> {
     const query = new URLSearchParams(
       Object.entries(params).reduce<Record<string, string>>((acc, [key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
@@ -226,7 +226,7 @@ export const api = {
     return handleResponse(res);
   },
 
-  async getPengelasanReport(params: { department_id?: number; bil_mesyuarat?: string; category?: string }): Promise<PengelasanReport> {
+  async getPengelasanReport(params: { department_id?: number; bil_mesyuarat?: string; category?: string; year?: number }): Promise<PengelasanReport> {
     const query = new URLSearchParams(
       Object.entries(params).reduce<Record<string, string>>((acc, [key, value]) => {
         if (value !== undefined && value !== null && value !== '') {
