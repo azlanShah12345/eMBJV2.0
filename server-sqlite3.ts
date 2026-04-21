@@ -571,25 +571,44 @@ async function startServer() {
       return res.json([]);
     }
 
-    const issues = await db.all(`
-      SELECT
-        i.id,
-        i.meeting_id,
-        i.category,
-        i.is_from_previous,
-        i.title,
-        i.status,
-        i.updated_at,
-        m.bil_mesyuarat,
-        m.tarikh_mesyuarat,
-        d.name AS department_name
-      FROM issues i
-      JOIN meetings m ON m.id = i.meeting_id
-      JOIN departments d ON d.id = m.department_id
-      WHERE m.department_id = ?
-      ORDER BY m.tarikh_mesyuarat DESC, i.updated_at DESC, i.id DESC
-      LIMIT 250
-    `, meeting.department_id);
+    const issues = req.user.role === 'ADMIN'
+      ? await db.all(`
+          SELECT
+            i.id,
+            i.meeting_id,
+            i.category,
+            i.is_from_previous,
+            i.title,
+            i.status,
+            i.updated_at,
+            m.bil_mesyuarat,
+            m.tarikh_mesyuarat,
+            d.name AS department_name
+          FROM issues i
+          JOIN meetings m ON m.id = i.meeting_id
+          JOIN departments d ON d.id = m.department_id
+          ORDER BY m.tarikh_mesyuarat DESC, i.updated_at DESC, i.id DESC
+          LIMIT 250
+        `)
+      : await db.all(`
+          SELECT
+            i.id,
+            i.meeting_id,
+            i.category,
+            i.is_from_previous,
+            i.title,
+            i.status,
+            i.updated_at,
+            m.bil_mesyuarat,
+            m.tarikh_mesyuarat,
+            d.name AS department_name
+          FROM issues i
+          JOIN meetings m ON m.id = i.meeting_id
+          JOIN departments d ON d.id = m.department_id
+          WHERE m.department_id = ?
+          ORDER BY m.tarikh_mesyuarat DESC, i.updated_at DESC, i.id DESC
+          LIMIT 250
+        `, meeting.department_id);
 
     const similarIssues = issues
       .map((issue: any) => ({
