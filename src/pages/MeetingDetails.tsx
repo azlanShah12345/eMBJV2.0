@@ -823,9 +823,9 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
             <div className="bg-slate-800 p-6 text-white">
               <h3 className="text-xl font-bold">Tambah Isu Mesyuarat</h3>
               <p className="text-slate-400 text-sm">Rekod isu baharu yang dibincangkan dalam mesyuarat ini.</p>
-              <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-emerald-100">
+              <p className="mt-3 flex items-center gap-2 rounded-2xl border border-emerald-300/20 bg-emerald-400/10 px-4 py-3 text-sm font-semibold leading-6 text-emerald-50 shadow-inner">
                 <Sparkles size={14} />
-                Cadangan kategori pintar berjalan secara tempatan tanpa API berbayar.
+                Sistem ini berupaya mencadangkan kategori yang paling bersesuaian serta mengenal pasti isu yang hampir serupa bagi mengelakkan pertindihan rekod.
               </p>
             </div>
             <form onSubmit={handleAddIssue} className="p-8 space-y-6">
