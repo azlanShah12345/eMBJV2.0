@@ -89,25 +89,31 @@ export default function Login({ onLogin }: LoginProps) {
         <div className="relative hidden overflow-hidden border-r border-white/10 px-10 py-12 text-white lg:block">
           <div className="login-fade-up relative z-10">
             <p className="text-xs font-bold uppercase tracking-[0.34em] text-emerald-200/80">Sarawak Civil Service</p>
-            <h1 className="mt-4 max-w-md text-5xl font-black leading-tight">Sistem eMBJ untuk pemantauan isu mesyuarat yang lebih tersusun.</h1>
-            <p className="mt-5 max-w-lg text-sm leading-7 text-slate-200/85">
-              Satu ruang kerja rasmi untuk merekod mesyuarat, menjejak isu, berkomunikasi dengan HQ, dan memastikan tindakan susulan sentiasa jelas.
+            <h1 className="mt-4 max-w-xl text-5xl font-black leading-tight">eMBJ memperkukuh penyelarasan rekod mesyuarat, tindakan isu, dan semakan rasmi HQ secara lebih teratur dan meyakinkan.</h1>
+            <p className="mt-5 max-w-xl text-sm leading-7 text-slate-200/85">
+              Platform rasmi ini dibangunkan untuk menyatukan pengurusan rekod mesyuarat MBJ, pemantauan isu berbangkit, komunikasi jabatan dengan HQ, serta penyediaan laporan yang lebih kemas, telus, dan bersedia untuk rujukan pengurusan.
             </p>
+            <div className="mt-6 max-w-xl rounded-3xl border border-emerald-300/15 bg-white/8 p-5 shadow-lg shadow-slate-950/10">
+              <p className="text-xs font-bold uppercase tracking-[0.28em] text-emerald-200/80">Nilai Strategik eMBJ</p>
+              <p className="mt-3 text-base font-semibold leading-7 text-white">
+                Daripada pendaftaran rekod hingga penghantaran ke HQ, setiap tindakan dipusatkan dalam satu sistem yang membantu memastikan maklumat sentiasa konsisten, mudah disemak, dan lebih cepat diterjemahkan kepada tindakan susulan.
+              </p>
+            </div>
           </div>
 
           <div className="login-fade-up-delay relative z-10 mt-10 grid grid-cols-1 gap-4">
             {[
               {
                 title: 'Rekod lebih teratur',
-                description: 'Mesyuarat, isu, dan tindakan susulan disusun mengikut jabatan serta tahun rekod.',
+                description: 'Mesyuarat, isu, dan tindakan susulan disusun mengikut jabatan, tahun rekod, dan status semasa untuk semakan yang lebih terarah.',
               },
               {
                 title: 'Kelulusan HQ terjamin',
-                description: 'Pendaftaran pengguna baharu dikawal melalui kelulusan pentadbir HQ sebelum akses diberikan.',
+                description: 'Pendaftaran pengguna baharu dikawal melalui semakan dan kelulusan pentadbir HQ sebelum akses rasmi diberikan.',
               },
               {
                 title: 'Tindakan lebih pantas',
-                description: 'Notifikasi mesej dan permohonan membantu pegawai memberi perhatian pada perkara yang masih aktif.',
+                description: 'Notifikasi mesej, permohonan, dan status rekod membantu pegawai memberi perhatian segera kepada perkara yang masih aktif.',
               },
             ].map((item) => (
               <div key={item.title} className="rounded-3xl border border-white/10 bg-white/8 p-5 shadow-lg shadow-slate-950/10">
@@ -283,8 +289,8 @@ export default function Login({ onLogin }: LoginProps) {
               <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Akses Rasmi</p>
               <p className="mt-2 text-sm leading-6 text-slate-600">
                 {mode === 'login'
-                  ? 'Sistem ini digunakan untuk pengurusan rekod mesyuarat MBJ, tindakan isu, dan penyelarasan laporan dengan HQ.'
-                  : 'Permohonan pendaftaran akan disemak oleh HQ. Akaun hanya boleh digunakan selepas status diluluskan.'}
+                  ? 'Akses ini membolehkan anda mengurus rekod mesyuarat MBJ, menyelaras tindakan isu, dan memastikan maklumat yang dihantar ke HQ berada dalam aliran rasmi yang tersusun.'
+                  : 'Permohonan pendaftaran akan disemak oleh HQ. Akaun hanya boleh digunakan selepas status diluluskan bagi memastikan akses sistem kekal terkawal dan sah.'}
               </p>
             </div>
 
