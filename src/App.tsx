@@ -18,8 +18,13 @@ function App() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const token = localStorage.getItem('token');
+    const storedUser = sessionStorage.getItem('user');
+    const token = sessionStorage.getItem('token');
+
+    // Bersihkan sesi lama yang masih menggunakan storan kekal.
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+
     if (storedUser && token) {
       setUser(JSON.parse(storedUser));
     }
@@ -27,12 +32,14 @@ function App() {
   }, []);
 
   const handleLogin = (userData: User, token: string) => {
-    localStorage.setItem('user', JSON.stringify(userData));
-    localStorage.setItem('token', token);
+    sessionStorage.setItem('user', JSON.stringify(userData));
+    sessionStorage.setItem('token', token);
     setUser(userData);
   };
 
   const handleLogout = () => {
+    sessionStorage.removeItem('user');
+    sessionStorage.removeItem('token');
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     setUser(null);

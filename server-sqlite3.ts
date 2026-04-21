@@ -22,6 +22,43 @@ const normalizeMinitPath = (minitPath: string | null | undefined) => {
   return normalized.startsWith('/') ? normalized : `/${normalized}`;
 };
 
+const normalizeIssueComparisonText = (value: unknown) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getIssueComparisonTokens = (value: unknown) =>
+  normalizeIssueComparisonText(value)
+    .split(' ')
+    .filter((token) => token.length >= 3);
+
+const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) => {
+  const normalizedLeft = normalizeIssueComparisonText(leftTitle);
+  const normalizedRight = normalizeIssueComparisonText(rightTitle);
+
+  if (!normalizedLeft || !normalizedRight) return 0;
+  if (normalizedLeft === normalizedRight) return 100;
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) return 92;
+
+  const leftTokens = Array.from(new Set(getIssueComparisonTokens(normalizedLeft)));
+  const rightTokens = Array.from(new Set(getIssueComparisonTokens(normalizedRight)));
+  if (leftTokens.length === 0 || rightTokens.length === 0) return 0;
+
+  const rightTokenSet = new Set(rightTokens);
+  const intersectionCount = leftTokens.filter((token) => rightTokenSet.has(token)).length;
+  if (intersectionCount === 0) return 0;
+
+  const unionCount = new Set([...leftTokens, ...rightTokens]).size;
+  const overlapScore = intersectionCount / Math.min(leftTokens.length, rightTokens.length);
+  const jaccardScore = intersectionCount / unionCount;
+
+  return Math.round((overlapScore * 70 + jaccardScore * 30) * 100);
+};
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -513,6 +550,67 @@ async function startServer() {
 
     const issues = await db.all('SELECT * FROM issues WHERE meeting_id = ?', meetingId);
     res.json(issues);
+  });
+
+  app.get('/api/meetings/:id/similar-issues', authenticate, async (req: any, res) => {
+    const meetingId = req.params.id;
+    const meeting = await db.get(`
+      SELECT m.id, m.department_id, d.name AS department_name
+      FROM meetings m
+      JOIN departments d ON d.id = m.department_id
+      WHERE m.id = ?
+    `, meetingId);
+
+    if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const requestedTitle = String(req.query.title || '').trim();
+    if (requestedTitle.length < 4) {
+      return res.json([]);
+    }
+
+    const issues = await db.all(`
+      SELECT
+        i.id,
+        i.meeting_id,
+        i.category,
+        i.is_from_previous,
+        i.title,
+        i.status,
+        i.updated_at,
+        m.bil_mesyuarat,
+        m.tarikh_mesyuarat,
+        d.name AS department_name
+      FROM issues i
+      JOIN meetings m ON m.id = i.meeting_id
+      JOIN departments d ON d.id = m.department_id
+      WHERE m.department_id = ?
+      ORDER BY m.tarikh_mesyuarat DESC, i.updated_at DESC, i.id DESC
+      LIMIT 250
+    `, meeting.department_id);
+
+    const similarIssues = issues
+      .map((issue: any) => ({
+        id: Number(issue.id),
+        meeting_id: Number(issue.meeting_id),
+        meeting_label: issue.bil_mesyuarat,
+        meeting_date: issue.tarikh_mesyuarat,
+        department_name: issue.department_name,
+        category: issue.category,
+        title: issue.title,
+        status: issue.status,
+        is_from_previous: Number(issue.is_from_previous || 0),
+        updated_at: issue.updated_at,
+        similarity_score: calculateIssueSimilarityScore(requestedTitle, issue.title),
+        is_same_meeting: Number(issue.meeting_id) === Number(meetingId),
+      }))
+      .filter((issue) => issue.similarity_score >= 45)
+      .sort((left, right) => right.similarity_score - left.similarity_score || Number(right.is_same_meeting) - Number(left.is_same_meeting))
+      .slice(0, 6);
+
+    res.json(similarIssues);
   });
 
   app.post('/api/meetings/:id/issues', authenticate, async (req: any, res) => {

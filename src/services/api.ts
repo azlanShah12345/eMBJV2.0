@@ -1,9 +1,9 @@
-import { User, Department, Meeting, Issue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog } from '../types';
+import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog } from '../types';
 
 const API_BASE = '/api';
 
 const getHeaders = () => {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -59,7 +59,7 @@ export const api = {
   },
 
   async createMeeting(formData: FormData): Promise<{ id: number }> {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     const res = await fetch(`${API_BASE}/meetings`, {
       method: 'POST',
       headers: {
@@ -81,6 +81,12 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify(issue),
     });
+    return handleResponse(res);
+  },
+
+  async getSimilarIssues(meetingId: number, title: string): Promise<SimilarIssue[]> {
+    const query = new URLSearchParams({ title }).toString();
+    const res = await fetch(`${API_BASE}/meetings/${meetingId}/similar-issues?${query}`, { headers: getHeaders() });
     return handleResponse(res);
   },
 

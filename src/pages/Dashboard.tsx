@@ -313,7 +313,7 @@ export default function Dashboard() {
         const meeting = departmentMeetings.find((item) => item.bil_mesyuarat === meetingLabel);
         if (!meeting) return '';
         const meetingDate = new Date(meeting.tarikh_mesyuarat).toLocaleDateString('ms-MY');
-        return `${meetingDate} (${meeting.submission_method || '-'})`;
+        return meeting.submission_method ? `${meetingDate} (${meeting.submission_method})` : meetingDate;
       };
       return {
         department: department.name,

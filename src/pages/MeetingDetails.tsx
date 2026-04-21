@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { Issue, MeetingMessage, User } from '../types';
+import { Issue, MeetingMessage, SimilarIssue, User } from '../types';
 import { ArrowLeft, Plus, Trash2, CheckCircle2, Circle, Lock, Download, FileText, XCircle, AlertTriangle, Send, MessageSquare, Sparkles } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
@@ -28,6 +28,8 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   const [isRequesting, setIsRequesting] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
   const [newMessage, setNewMessage] = useState('');
+  const [similarIssues, setSimilarIssues] = useState<SimilarIssue[]>([]);
+  const [isCheckingSimilarIssues, setIsCheckingSimilarIssues] = useState(false);
 
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -63,6 +65,46 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
 
     return () => window.clearInterval(intervalId);
   }, [id]);
+
+  useEffect(() => {
+    if (!isModalOpen || !id) {
+      setSimilarIssues([]);
+      setIsCheckingSimilarIssues(false);
+      return undefined;
+    }
+
+    const trimmedTitle = newIssue.title.trim();
+    if (trimmedTitle.length < 4) {
+      setSimilarIssues([]);
+      setIsCheckingSimilarIssues(false);
+      return undefined;
+    }
+
+    let isCancelled = false;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        setIsCheckingSimilarIssues(true);
+        const data = await api.getSimilarIssues(Number(id), trimmedTitle);
+        if (!isCancelled) {
+          setSimilarIssues(data);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setSimilarIssues([]);
+        }
+        console.error(error);
+      } finally {
+        if (!isCancelled) {
+          setIsCheckingSimilarIssues(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [id, isModalOpen, newIssue.title]);
 
   const fetchData = async () => {
     try {
@@ -110,6 +152,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
         title: '',
         status: 'Belum Selesai'
       });
+      setSimilarIssues([]);
       showToast('Isu berjaya ditambah');
       fetchData();
     } catch (err) {
@@ -377,6 +420,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   );
   const hasIssueTitle = newIssue.title.trim().length > 0;
   const isSuggestionApplied = issueCategorySuggestion?.category === newIssue.category;
+  const hasSimilarIssueMatches = similarIssues.length > 0;
 
   const processSteps = [
     {
@@ -837,6 +881,53 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500"
                   placeholder="Nyatakan isu atau keputusan yang dibincangkan..."
                 />
+                {isCheckingSimilarIssues ? (
+                  <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                    Sedang menyemak isu berulang dalam rekod jabatan...
+                  </div>
+                ) : hasSimilarIssueMatches ? (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="rounded-xl bg-amber-100 p-2 text-amber-700">
+                        <AlertTriangle size={18} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-amber-900">Semakan isu berulang menemui rekod yang hampir sama</p>
+                        <p className="mt-1 text-sm text-amber-800">
+                          Sila semak dahulu sebelum simpan, untuk elakkan isu yang sama direkodkan berulang.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-4 space-y-3">
+                      {similarIssues.map((issue) => (
+                        <div key={`${issue.id}-${issue.meeting_id}`} className="rounded-xl border border-amber-100 bg-white p-4 text-sm text-slate-700">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <p className="font-bold text-slate-900">{issue.title}</p>
+                              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                                Padanan {issue.similarity_score}% {issue.is_same_meeting ? '| Mesyuarat semasa' : `| ${issue.meeting_label}`}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2 text-xs font-bold">
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">{issue.category}</span>
+                              <span className={`rounded-full px-2.5 py-1 ${issue.status === 'Selesai' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                                {issue.status}
+                              </span>
+                            </div>
+                          </div>
+                          <p className="mt-2 text-xs text-slate-500">
+                            {issue.department_name} | {issue.meeting_label} | {new Date(issue.meeting_date).toLocaleDateString('ms-MY')}
+                            {issue.is_from_previous ? ' | Isu terdahulu' : ''}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : hasIssueTitle && newIssue.title.trim().length >= 4 ? (
+                  <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+                    Tiada isu berulang yang hampir sama ditemui dalam rekod jabatan setakat semakan semasa.
+                  </div>
+                ) : null}
               </div>
 
               <div className="flex items-center gap-6">
