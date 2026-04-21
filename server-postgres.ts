@@ -36,6 +36,8 @@ const DATABASE_CONNECT_DELAY_MS = Number(process.env.DATABASE_CONNECT_DELAY_MS |
 const DATABASE_POOL_MAX = Number(process.env.DATABASE_POOL_MAX || 10);
 const DATABASE_IDLE_TIMEOUT_MS = Number(process.env.DATABASE_IDLE_TIMEOUT_MS || 30000);
 const DATABASE_CONNECTION_TIMEOUT_MS = Number(process.env.DATABASE_CONNECTION_TIMEOUT_MS || 15000);
+const DATABASE_QUERY_RETRY_COUNT = Number(process.env.DATABASE_QUERY_RETRY_COUNT || 1);
+const DATABASE_QUERY_RETRY_DELAY_MS = Number(process.env.DATABASE_QUERY_RETRY_DELAY_MS || 1000);
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
@@ -75,9 +77,43 @@ const normalizeMinitPath = (minitPath: string | null | undefined) => {
       : `/${normalized}`;
 };
 
+const isRetrySafeReadQuery = (text: string) => {
+  const normalized = text.replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+
+  const startsAsReadQuery = normalized.startsWith('select ') || normalized.startsWith('with ');
+  if (!startsAsReadQuery) return false;
+
+  return !/\b(insert|update|delete|merge|alter|drop|create|truncate)\b/i.test(normalized);
+};
+
+const getQueryLabel = (text: string) => {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  const label = normalized.split(' ')[0]?.toUpperCase();
+  return label || 'UNKNOWN';
+};
+
 const query = async <T = any>(text: string, params: any[] = []) => {
-  const result = await pool.query<T>(text, params);
-  return result;
+  const maxAttempts = isRetrySafeReadQuery(text) ? DATABASE_QUERY_RETRY_COUNT + 1 : 1;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await pool.query<T>(text, params);
+    } catch (error) {
+      const shouldRetry = attempt < maxAttempts && isDatabaseAvailabilityError(error);
+      if (!shouldRetry) {
+        throw error;
+      }
+
+      console.warn(
+        `Sambungan database terganggu semasa query ${getQueryLabel(text)}. Cubaan semula ke-${attempt + 1}/${maxAttempts} akan dibuat.`
+      );
+
+      await wait(DATABASE_QUERY_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  throw new Error('Query database gagal selepas cubaan semula.');
 };
 
 const asyncHandler = (handler: any) => (req: any, res: any, next: any) => {
@@ -409,7 +445,11 @@ async function startServer() {
 
   app.use(cors());
   app.use(express.json());
-  app.get('/api/health', asyncHandler(async (_req: any, res: any) => {
+  app.get('/api/health', (_req: any, res: any) => {
+    res.json({ status: 'ok' });
+  });
+
+  app.get('/api/health/database', asyncHandler(async (_req: any, res: any) => {
     await query('SELECT 1');
     res.json({ status: 'ok', database: 'connected' });
   }));

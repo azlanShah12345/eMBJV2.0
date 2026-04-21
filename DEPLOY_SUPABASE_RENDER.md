@@ -118,12 +118,13 @@ In Render dashboard, add:
 After deployment:
 
 1. Open `/api/health`
-2. Log in as `admin`
-3. Create a meeting
-4. Upload a PDF
-5. Submit to HQ
-6. Test approve/reject flows
-7. Generate Lampiran A and B
+2. Open `/api/health/database`
+3. Log in as `admin`
+4. Create a meeting
+5. Upload a PDF
+6. Submit to HQ
+7. Test approve/reject flows
+8. Generate Lampiran A and B
 
 ## 9. Migrate existing SQLite data
 
