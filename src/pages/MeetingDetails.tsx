@@ -421,6 +421,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   const hasIssueTitle = newIssue.title.trim().length > 0;
   const isSuggestionApplied = issueCategorySuggestion?.category === newIssue.category;
   const hasSimilarIssueMatches = similarIssues.length > 0;
+  const similarIssueScopeLabel = user.role === 'ADMIN' ? 'semua jabatan' : 'rekod jabatan';
 
   const processSteps = [
     {
@@ -883,7 +884,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                 />
                 {isCheckingSimilarIssues ? (
                   <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                    Sedang menyemak isu berulang dalam rekod jabatan...
+                    Sedang menyemak isu berulang dalam {similarIssueScopeLabel}...
                   </div>
                 ) : hasSimilarIssueMatches ? (
                   <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
@@ -894,7 +895,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                       <div className="min-w-0 flex-1">
                         <p className="font-bold text-amber-900">Semakan isu berulang menemui rekod yang hampir sama</p>
                         <p className="mt-1 text-sm text-amber-800">
-                          Sila semak dahulu sebelum simpan, untuk elakkan isu yang sama direkodkan berulang.
+                          Sila semak dahulu sebelum simpan, untuk elakkan isu yang sama direkodkan berulang dalam {similarIssueScopeLabel}.
                         </p>
                       </div>
                     </div>
@@ -925,7 +926,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                   </div>
                 ) : hasIssueTitle && newIssue.title.trim().length >= 4 ? (
                   <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
-                    Tiada isu berulang yang hampir sama ditemui dalam rekod jabatan setakat semakan semasa.
+                    Tiada isu berulang yang hampir sama ditemui dalam {similarIssueScopeLabel} setakat semakan semasa.
                   </div>
                 ) : null}
               </div>

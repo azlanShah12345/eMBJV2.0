@@ -1160,6 +1160,15 @@ async function startServer() {
       return res.json([]);
     }
 
+    const issueScopeParams: any[] = [];
+    const issueScopeFilters: string[] = [];
+
+    if (req.user.role !== 'ADMIN') {
+      issueScopeParams.push(meeting.department_id);
+      issueScopeFilters.push(`m.department_id = $${issueScopeParams.length}`);
+    }
+
+    const issueScopeWhereClause = issueScopeFilters.length > 0 ? `WHERE ${issueScopeFilters.join(' AND ')}` : '';
     const issueResult = await query(
       `
       SELECT
@@ -1176,11 +1185,11 @@ async function startServer() {
       FROM issues i
       JOIN meetings m ON m.id = i.meeting_id
       JOIN departments d ON d.id = m.department_id
-      WHERE m.department_id = $1
+      ${issueScopeWhereClause}
       ORDER BY m.tarikh_mesyuarat DESC, i.updated_at DESC, i.id DESC
       LIMIT 250
       `,
-      [meeting.department_id]
+      issueScopeParams
     );
 
     const similarIssues = issueResult.rows
