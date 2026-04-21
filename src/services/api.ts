@@ -3,7 +3,7 @@ import { User, Department, Meeting, Issue, CategoryStats, PengelasanReport, Meet
 const API_BASE = '/api';
 
 const getHeaders = () => {
-  const token = localStorage.getItem('token');
+  const token = sessionStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -59,7 +59,7 @@ export const api = {
   },
 
   async createMeeting(formData: FormData): Promise<{ id: number }> {
-    const token = localStorage.getItem('token');
+    const token = sessionStorage.getItem('token');
     const res = await fetch(`${API_BASE}/meetings`, {
       method: 'POST',
       headers: {

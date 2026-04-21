@@ -906,7 +906,7 @@ async function startServer() {
   }));
 
   app.post('/api/meetings', authenticate, upload.single('minit'), asyncHandler(async (req: any, res) => {
-    const { bil_mesyuarat, tarikh_mesyuarat, submission_method } = req.body;
+    const { bil_mesyuarat, tarikh_mesyuarat } = req.body;
     const departmentId = req.user.role === 'ADMIN'
       ? Number(req.body.department_id || req.user.department_id)
       : Number(req.user.department_id);
@@ -920,10 +920,6 @@ async function startServer() {
 
     if (!['Bil 1', 'Bil 2', 'Bil 3'].includes(meetingLabel)) {
       return res.status(400).json({ error: 'Bilangan mesyuarat tidak sah' });
-    }
-
-    if (!['D', 'E'].includes(String(submission_method || ''))) {
-      return res.status(400).json({ error: 'Kaedah penghantaran minit mesti sama ada D atau E' });
     }
 
     const duplicateMeeting = await query(
@@ -963,7 +959,7 @@ async function startServer() {
       VALUES ($1, $2, $3, $4, $5, $6, 0, 0, 0, 0)
       RETURNING id
       `,
-      [meetingLabel, meetingDate, departmentId, req.user.id, minitPath, submission_method]
+      [meetingLabel, meetingDate, departmentId, req.user.id, minitPath, null]
     );
 
     await writeAuditLog(req, {
@@ -976,7 +972,6 @@ async function startServer() {
         tarikh_mesyuarat: meetingDate,
         department_id: departmentId,
         has_minutes: Boolean(minitPath),
-        submission_method,
       },
     });
 

@@ -18,7 +18,6 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
   const [selectedYear, setSelectedYear] = useState('');
   const [bil, setBil] = useState('Bil 1');
   const [tarikh, setTarikh] = useState('');
-  const [submissionMethod, setSubmissionMethod] = useState<'D' | 'E'>('E');
   const [file, setFile] = useState<File | null>(null);
 
   useEffect(() => {
@@ -57,7 +56,6 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
     formData.append('bil_mesyuarat', bil);
     formData.append('tarikh_mesyuarat', tarikh);
     formData.append('department_id', user.department_id.toString());
-    formData.append('submission_method', submissionMethod);
     if (file) formData.append('minit', file);
 
     try {
@@ -66,7 +64,6 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
       setIsModalOpen(false);
       setBil('Bil 1');
       setTarikh('');
-      setSubmissionMethod('E');
       setFile(null);
       if (tarikh) {
         setSelectedYear(String(new Date(tarikh).getFullYear()));
@@ -397,18 +394,6 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
                   onChange={(e) => setTarikh(e.target.value)}
                   className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
                 />
-              </div>
-              <div>
-                <label className="mb-1 block text-sm font-semibold text-slate-700">Kaedah Hantar Minit</label>
-                <select
-                  value={submissionMethod}
-                  onChange={(e) => setSubmissionMethod(e.target.value as 'D' | 'E')}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50 p-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  <option value="E">E - Emel</option>
-                  <option value="D">D - Salinan Keras / Pos</option>
-                </select>
-                <p className="mt-2 text-xs text-slate-500">Maklumat ini digunakan dalam Lampiran A untuk rujukan rasmi HQ.</p>
               </div>
               <div>
                 <label className="mb-1 block text-sm font-semibold text-slate-700">Minit Mesyuarat (PDF)</label>
