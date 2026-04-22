@@ -954,11 +954,11 @@ export default function Dashboard() {
         theme: 'grid',
         headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], halign: 'center', valign: 'middle', lineColor: [203, 213, 225], lineWidth: 0.2 },
         styles: {
-          fontSize: 8,
+          fontSize: 7.4,
           cellPadding: { top: 2.8, right: 2.8, bottom: 2.8, left: 2.8 },
           overflow: 'linebreak',
           valign: 'top',
-          halign: 'justify',
+          halign: 'left',
           lineColor: [203, 213, 225],
           lineWidth: 0.1,
           textColor: [30, 41, 59],
@@ -966,14 +966,14 @@ export default function Dashboard() {
         },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         columnStyles: {
-          0: { cellWidth: 12, halign: 'center' },
-          1: { cellWidth: 34, fontStyle: 'bold', halign: 'justify' },
-          2: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
-          3: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
-          4: { cellWidth: 48, halign: 'justify' },
-          5: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
-          6: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
-          7: { cellWidth: 56, halign: 'justify' },
+          0: { cellWidth: 10, halign: 'center' },
+          1: { cellWidth: 28, fontStyle: 'bold', halign: 'left' },
+          2: { cellWidth: 14, halign: 'center', fontStyle: 'bold' },
+          3: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+          4: { cellWidth: 58, halign: 'left' },
+          5: { cellWidth: 14, halign: 'center', fontStyle: 'bold' },
+          6: { cellWidth: 18, halign: 'center', fontStyle: 'bold' },
+          7: { cellWidth: 66, halign: 'left' },
         },
         didParseCell: (hookData) => {
           if (hookData.section === 'head' && hookData.row.index === 1) {
@@ -993,7 +993,7 @@ export default function Dashboard() {
               hookData.cell.styles.halign = 'center';
             }
             if ([1, 4, 7].includes(hookData.column.index)) {
-              hookData.cell.styles.halign = 'justify';
+              hookData.cell.styles.halign = 'left';
             }
             if (isTotalRow) {
               hookData.cell.styles.fillColor = [254, 240, 138];
