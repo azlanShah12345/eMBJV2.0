@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { Issue, MeetingMessage, OFFICIAL_ISSUE_CATEGORIES, SimilarIssue, User } from '../types';
+import { Issue, IssueCategorySuggestion, MeetingMessage, OFFICIAL_ISSUE_CATEGORIES, SimilarIssue, User } from '../types';
 import { ArrowLeft, Plus, Trash2, CheckCircle2, Circle, Lock, Download, FileText, XCircle, AlertTriangle, Send, MessageSquare, Sparkles } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
-import { getSuggestedIssueCategory } from '../utils/issueCategorySuggestion';
 
 interface MeetingDetailsProps {
   user: User;
@@ -29,6 +28,8 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   const [newMessage, setNewMessage] = useState('');
   const [similarIssues, setSimilarIssues] = useState<SimilarIssue[]>([]);
   const [isCheckingSimilarIssues, setIsCheckingSimilarIssues] = useState(false);
+  const [issueCategorySuggestion, setIssueCategorySuggestion] = useState<IssueCategorySuggestion | null>(null);
+  const [isLoadingIssueCategorySuggestion, setIsLoadingIssueCategorySuggestion] = useState(false);
   const clampPercentage = (value: number) => Math.min(100, Math.max(0, Math.round(value)));
 
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -107,6 +108,46 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     };
   }, [id, isModalOpen, newIssue.title]);
 
+  useEffect(() => {
+    if (!isModalOpen || !id) {
+      setIssueCategorySuggestion(null);
+      setIsLoadingIssueCategorySuggestion(false);
+      return undefined;
+    }
+
+    const trimmedTitle = newIssue.title.trim();
+    if (!trimmedTitle) {
+      setIssueCategorySuggestion(null);
+      setIsLoadingIssueCategorySuggestion(false);
+      return undefined;
+    }
+
+    let isCancelled = false;
+    const timeoutId = window.setTimeout(async () => {
+      try {
+        setIsLoadingIssueCategorySuggestion(true);
+        const suggestion = await api.getIssueCategorySuggestion(Number(id), trimmedTitle);
+        if (!isCancelled) {
+          setIssueCategorySuggestion(suggestion);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setIssueCategorySuggestion(null);
+        }
+        console.error(error);
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingIssueCategorySuggestion(false);
+        }
+      }
+    }, 300);
+
+    return () => {
+      isCancelled = true;
+      window.clearTimeout(timeoutId);
+    };
+  }, [id, isModalOpen, newIssue.title]);
+
   const fetchData = async () => {
     try {
       const [meetingData, issuesData, messagesData] = await Promise.all([
@@ -152,6 +193,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
         status: 'Belum Selesai'
       });
       setSimilarIssues([]);
+      setIssueCategorySuggestion(null);
       showToast('Isu berjaya ditambah');
       fetchData();
     } catch (err) {
@@ -413,10 +455,6 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   if (loading) return <div className="text-center py-12">Sedang memuatkan butiran...</div>;
   if (!meeting) return <div className="text-center py-12">Mesyuarat tidak ditemui.</div>;
 
-  const issueCategorySuggestion = getSuggestedIssueCategory(
-    newIssue.title,
-    issueEntryCategories.map((item) => item.name)
-  );
   const hasIssueTitle = newIssue.title.trim().length > 0;
   const isSuggestionApplied = issueCategorySuggestion?.category === newIssue.category;
   const hasSimilarIssueMatches = similarIssues.length > 0;
@@ -842,13 +880,30 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                   <p className="mt-2 text-xs text-slate-500">
                     Isu baharu menggunakan pengelasan rasmi semasa. Rekod isu sejarah kekal pada kategori asal yang telah dilaporkan.
                   </p>
-                  {issueCategorySuggestion ? (
+                  {isLoadingIssueCategorySuggestion ? (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                      Sedang menyemak cadangan kategori berasaskan rekod isu terdahulu...
+                    </div>
+                  ) : issueCategorySuggestion ? (
                     <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
                           <p className="font-bold">Cadangan kategori pintar: {issueCategorySuggestion.category}</p>
-                          <p className="mt-1 text-emerald-800">
-                            Berdasarkan padanan kata kunci: {issueCategorySuggestion.matchedKeywords.join(', ')}.
+                          {issueCategorySuggestion.source === 'data' ? (
+                            <p className="mt-1 text-emerald-800">
+                              Berdasarkan pola {issueCategorySuggestion.support_count} rekod isu terdahulu
+                              {issueCategorySuggestion.department_support_count > 1
+                                ? ` merentasi ${issueCategorySuggestion.department_support_count} jabatan`
+                                : ''}
+                              . Cadangan akan semakin tepat apabila pembetulan kategori disimpan pada rekod baharu.
+                            </p>
+                          ) : (
+                            <p className="mt-1 text-emerald-800">
+                              Berdasarkan padanan kata kunci: {issueCategorySuggestion.matched_keywords.join(', ')}.
+                            </p>
+                          )}
+                          <p className="mt-2 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                            Tahap keyakinan: {issueCategorySuggestion.confidence}
                           </p>
                         </div>
                         {!isSuggestionApplied && (
