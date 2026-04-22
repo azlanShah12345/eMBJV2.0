@@ -27,7 +27,7 @@ const CATEGORY_MATCHERS = [
     ],
   },
   {
-    aliases: ['Sumber manusia', 'Sumber Manusia', 'Perjawatan'],
+    aliases: ['Sumber Manusia', 'Sumber manusia', 'Perjawatan'],
     keywords: [
       'sumber manusia',
       'pegawai',

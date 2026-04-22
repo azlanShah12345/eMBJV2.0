@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { User, Department, OFFICIAL_ISSUE_CATEGORIES } from '../types';
+import { User, Department, OFFICIAL_ISSUE_CATEGORIES, CATEGORY_FAMILY_MAP } from '../types';
 import { Users, Building2, Tag, Trash2, UserPlus, CheckCircle2, XCircle, Clock3 } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
@@ -36,6 +36,30 @@ export default function Settings() {
   const missingOfficialCategories = OFFICIAL_ISSUE_CATEGORIES.filter(
     (officialCategory) => !categories.some((category) => normalizeCategoryName(category.name) === normalizeCategoryName(officialCategory))
   );
+  const categoryFamilyEntries = OFFICIAL_ISSUE_CATEGORIES.map((officialCategory) => {
+    const aliases = CATEGORY_FAMILY_MAP[officialCategory] || [];
+    const relatedEntries = categories.filter((category) => {
+      const normalizedName = normalizeCategoryName(category.name);
+      return (
+        normalizedName === normalizeCategoryName(officialCategory) ||
+        aliases.some((alias) => normalizeCategoryName(alias) === normalizedName)
+      );
+    });
+
+    return {
+      officialCategory,
+      aliases,
+      relatedEntries,
+    };
+  });
+  const otherCategories = categories.filter((category) => {
+    const normalizedName = normalizeCategoryName(category.name);
+    return !categoryFamilyEntries.some(
+      (entry) =>
+        normalizeCategoryName(entry.officialCategory) === normalizedName ||
+        entry.aliases.some((alias) => normalizeCategoryName(alias) === normalizedName)
+    );
+  });
 
   useEffect(() => {
     fetchData(activeTab);
@@ -535,10 +559,51 @@ export default function Settings() {
                     </tr>
                   ))}
 
-                  {activeTab === 'categories' && categories.map(c => (
+                  {activeTab === 'categories' && categoryFamilyEntries.map((entry) => (
+                    <tr key={`family-${entry.officialCategory}`} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-slate-800">{entry.officialCategory}</div>
+                        {entry.aliases.length > 0 && (
+                          <div className="mt-1 text-xs text-slate-500">
+                            Termasuk kategori hampir sama: {entry.aliases.join(', ')}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-500">
+                        {entry.relatedEntries.length > 0 ? (
+                          <div className="space-y-1">
+                            {entry.relatedEntries.map((category) => (
+                              <div key={`related-${category.id}`}>
+                                {category.name}
+                                {normalizeCategoryName(category.name) === normalizeCategoryName(entry.officialCategory) ? ' | Kategori rasmi' : ' | Kategori sejarah berkaitan'}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <span>Belum diwujudkan dalam database</span>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {entry.relatedEntries
+                          .filter((category) => normalizeCategoryName(category.name) !== normalizeCategoryName(entry.officialCategory))
+                          .map((category) => (
+                            <button
+                              key={`delete-${category.id}`}
+                              onClick={() => handleDeleteCat(category.id)}
+                              className="text-slate-300 hover:text-red-500 p-2"
+                              title={`Hapus ${category.name}`}
+                            >
+                              <Trash2 size={18} />
+                            </button>
+                          ))}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {activeTab === 'categories' && otherCategories.map(c => (
                     <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
                       <td className="px-6 py-4 font-bold text-slate-800">{c.name}</td>
-                      <td className="px-6 py-4 text-sm text-slate-500">ID: {c.id}</td>
+                      <td className="px-6 py-4 text-sm text-slate-500">Kategori tersendiri | ID: {c.id}</td>
                       <td className="px-6 py-4 text-right">
                         <button onClick={() => handleDeleteCat(c.id)} className="text-slate-300 hover:text-red-500 p-2">
                           <Trash2 size={18} />
