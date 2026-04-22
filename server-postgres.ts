@@ -1540,6 +1540,81 @@ async function startServer() {
     res.json({ success: true });
   }));
 
+  app.get('/api/dashboard/issues', authenticate, asyncHandler(async (req: any, res) => {
+    let { department_id, year, bil_mesyuarat, category, status, official_only } = req.query;
+    if (req.user.role !== 'ADMIN') {
+      department_id = req.user.department_id;
+      official_only = undefined;
+    }
+
+    const filters: string[] = [];
+    const params: any[] = [];
+    if (official_only === '1') {
+      filters.push('m.is_locked = 1');
+    }
+    if (department_id) {
+      params.push(Number(department_id));
+      filters.push(`m.department_id = $${params.length}`);
+    }
+    if (year) {
+      params.push(Number(year));
+      filters.push(`EXTRACT(YEAR FROM m.tarikh_mesyuarat) = $${params.length}`);
+    }
+    if (bil_mesyuarat) {
+      params.push(String(bil_mesyuarat));
+      filters.push(`m.bil_mesyuarat = $${params.length}`);
+    }
+    if (category) {
+      params.push(String(category));
+      filters.push(`i.category = $${params.length}`);
+    }
+
+    const normalizedStatus =
+      status === 'Selesai' ? 'Selesai' :
+      status === 'Belum Selesai' ? 'Belum Selesai' :
+      null;
+    if (normalizedStatus) {
+      params.push(normalizedStatus);
+      filters.push(`i.status = $${params.length}`);
+    }
+
+    const issues = await query(`
+      SELECT
+        i.*,
+        m.bil_mesyuarat AS meeting_label,
+        m.tarikh_mesyuarat AS meeting_date,
+        m.department_id,
+        d.name AS department_name,
+        m.is_locked AS meeting_is_locked
+      FROM issues i
+      JOIN meetings m ON m.id = i.meeting_id
+      JOIN departments d ON d.id = m.department_id
+      ${filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : ''}
+      ORDER BY
+        CASE WHEN i.status = 'Belum Selesai' THEN 0 ELSE 1 END,
+        m.tarikh_mesyuarat DESC,
+        d.name ASC,
+        m.bil_mesyuarat ASC,
+        i.id DESC
+    `, params);
+
+    res.json(issues.rows.map((row: any) => ({
+      id: Number(row.id),
+      meeting_id: Number(row.meeting_id),
+      category: row.category,
+      is_from_previous: Number(row.is_from_previous || 0),
+      title: row.title,
+      status: row.status,
+      responsible_officer: row.responsible_officer || '',
+      updated_at: row.updated_at,
+      meeting_label: row.meeting_label,
+      meeting_date: row.meeting_date,
+      department_id: Number(row.department_id),
+      department_name: row.department_name,
+      meeting_is_locked: Number(row.meeting_is_locked || 0),
+    })));
+  }));
+
   app.get('/api/stats', authenticate, asyncHandler(async (req: any, res) => {
     let { department_id, year, bil_mesyuarat, category } = req.query;
     if (req.user.role !== 'ADMIN') {

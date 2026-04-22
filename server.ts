@@ -1083,6 +1083,65 @@ async function startServer() {
     res.json({ success: true });
   }));
 
+  app.get('/api/dashboard/issues', authenticate, catchErrors((req: any, res: any) => {
+    let { department_id, year, bil_mesyuarat, category, status, official_only } = req.query;
+    if (req.user.role !== 'ADMIN') {
+      department_id = req.user.department_id;
+      official_only = undefined;
+    }
+
+    let query = `
+      SELECT
+        i.*,
+        m.bil_mesyuarat AS meeting_label,
+        m.tarikh_mesyuarat AS meeting_date,
+        m.department_id,
+        d.name AS department_name,
+        m.is_locked AS meeting_is_locked
+      FROM issues i
+      JOIN meetings m ON i.meeting_id = m.id
+      JOIN departments d ON m.department_id = d.id
+      WHERE 1=1
+    `;
+    const params = [];
+
+    if (official_only === '1') {
+      query += ' AND m.is_locked = 1';
+    }
+    if (department_id) {
+      query += ' AND m.department_id = ?';
+      params.push(Number(department_id));
+    }
+    if (year) {
+      query += " AND CAST(strftime('%Y', m.tarikh_mesyuarat) AS INTEGER) = ?";
+      params.push(Number(year));
+    }
+    if (bil_mesyuarat) {
+      query += ' AND m.bil_mesyuarat = ?';
+      params.push(String(bil_mesyuarat));
+    }
+    if (category) {
+      query += ' AND i.category = ?';
+      params.push(String(category));
+    }
+    if (status === 'Selesai' || status === 'Belum Selesai') {
+      query += ' AND i.status = ?';
+      params.push(String(status));
+    }
+
+    query += `
+      ORDER BY
+        CASE WHEN i.status = 'Belum Selesai' THEN 0 ELSE 1 END,
+        m.tarikh_mesyuarat DESC,
+        d.name ASC,
+        m.bil_mesyuarat ASC,
+        i.id DESC
+    `;
+
+    const issues = db.prepare(query).all(...params);
+    res.json(issues);
+  }));
+
   app.get('/api/stats', authenticate, catchErrors((req: any, res: any) => {
     const { department_id, bil_mesyuarat } = req.query;
     let query = `

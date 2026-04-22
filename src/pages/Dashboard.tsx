@@ -295,6 +295,28 @@ export default function Dashboard() {
   const activeYearLabel = selectedYear || 'Semua Tahun';
   const activeMeetingLabel = bil || 'Semua Mesyuarat';
   const activeCategoryLabel = category || 'Semua Kategori';
+  const buildIssueDrilldownLink = (overrides: {
+    departmentId?: number | string;
+    year?: string;
+    meetingLabel?: string;
+    categoryLabel?: string;
+    status?: 'Selesai' | 'Belum Selesai';
+  } = {}) => {
+    const params = new URLSearchParams();
+    const resolvedDepartmentId = overrides.departmentId !== undefined ? String(overrides.departmentId) : deptId;
+    const resolvedYear = overrides.year !== undefined ? overrides.year : selectedYear;
+    const resolvedMeetingLabel = overrides.meetingLabel !== undefined ? overrides.meetingLabel : bil;
+    const resolvedCategoryLabel = overrides.categoryLabel !== undefined ? overrides.categoryLabel : category;
+
+    if (resolvedDepartmentId) params.set('department_id', resolvedDepartmentId);
+    if (resolvedYear) params.set('year', resolvedYear);
+    if (resolvedMeetingLabel) params.set('bil_mesyuarat', resolvedMeetingLabel);
+    if (resolvedCategoryLabel) params.set('category', resolvedCategoryLabel);
+    if (overrides.status) params.set('status', overrides.status);
+
+    const query = params.toString();
+    return `/dashboard/issues${query ? `?${query}` : ''}`;
+  };
   const submittedMeetingsForLampiranA = meetings
     .filter((meeting) => meeting.is_locked === 1)
     .filter((meeting) => !deptId || Number(meeting.department_id) === Number(deptId))
@@ -1364,6 +1386,17 @@ export default function Dashboard() {
                     <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">{card.label}</p>
                     <h3 className="mt-3 text-xl font-black text-slate-900">{card.value}</h3>
                     <p className="mt-2 text-sm text-slate-500">{card.note}</p>
+                    {card.label === 'Jabatan Perlu Perhatian' && departmentsNeedingAttention[0] && (
+                      <Link
+                        to={buildIssueDrilldownLink({
+                          departmentId: departments.find((department) => department.name === departmentsNeedingAttention[0].department)?.id,
+                          status: 'Belum Selesai',
+                        })}
+                        className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-amber-700 transition-colors hover:text-amber-800"
+                      >
+                        Lihat isu jabatan
+                      </Link>
+                    )}
                   </div>
                   <div className={`rounded-2xl p-3 ${accentClasses}`}>
                     <Icon size={20} />
@@ -1444,6 +1477,17 @@ export default function Dashboard() {
                           {item.urgencyLabel}
                         </span>
                       </div>
+                      <div className="mt-3">
+                        <Link
+                          to={buildIssueDrilldownLink({
+                            departmentId: departments.find((department) => department.name === item.department)?.id,
+                            status: 'Belum Selesai',
+                          })}
+                          className="text-sm font-semibold text-emerald-700 transition-colors hover:text-emerald-800"
+                        >
+                          Lihat isu jabatan
+                        </Link>
+                      </div>
                     </div>
                   ))
                 )}
@@ -1515,6 +1559,17 @@ export default function Dashboard() {
             <p className="mt-2 text-sm text-slate-600">
               {attentionDepartment ? `${attentionDepartment.pending} isu tertunggak dengan kadar selesai ${attentionDepartment.completion.toFixed(1)}%.` : 'Tiada jabatan tertunggak dalam skop semasa.'}
             </p>
+            {attentionDepartment && (
+              <Link
+                to={buildIssueDrilldownLink({
+                  departmentId: departments.find((department) => department.name === attentionDepartment.department)?.id,
+                  status: 'Belum Selesai',
+                })}
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-700 transition-colors hover:text-amber-800"
+              >
+                Drill masuk isu jabatan
+              </Link>
+            )}
           </div>
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-5">
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-indigo-700">Kategori Utama</p>
@@ -1618,9 +1673,19 @@ export default function Dashboard() {
                   <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-white">
                     <div className="h-full rounded-full bg-slate-900" style={{ width: `${item.completion}%` }} />
                   </div>
-                  <div className="mt-3 flex items-center justify-between text-xs font-medium text-slate-500">
+                  <div className="mt-3 flex items-center justify-between gap-3 text-xs font-medium text-slate-500">
                     <span>Selesai: {item.selesai}</span>
-                    <span>Tertunggak: {item.pending}</span>
+                    <div className="flex items-center gap-3">
+                      <span>Tertunggak: {item.pending}</span>
+                      <Link
+                        to={buildIssueDrilldownLink({
+                          departmentId: departments.find((department) => department.name === item.department)?.id,
+                        })}
+                        className="text-sm font-semibold text-emerald-700 transition-colors hover:text-emerald-800"
+                      >
+                        Lihat isu
+                      </Link>
+                    </div>
                   </div>
                 </div>
               ))
