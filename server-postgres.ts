@@ -1685,7 +1685,7 @@ async function startServer() {
   }));
 
   app.get('/api/dashboard/issues', authenticate, asyncHandler(async (req: any, res) => {
-    let { department_id, year, bil_mesyuarat, category, status, official_only } = req.query;
+    let { department_id, year, bil_mesyuarat, category, keyword, status, official_only } = req.query;
     if (req.user.role !== 'ADMIN') {
       department_id = req.user.department_id;
       official_only = undefined;
@@ -1707,6 +1707,19 @@ async function startServer() {
     if (bil_mesyuarat) {
       params.push(String(bil_mesyuarat));
       filters.push(`m.bil_mesyuarat = $${params.length}`);
+    }
+    if (keyword) {
+      const normalizedKeyword = `%${String(keyword).trim()}%`;
+      if (normalizedKeyword !== '%%') {
+        params.push(normalizedKeyword);
+        filters.push(`(
+          i.title ILIKE $${params.length}
+          OR COALESCE(i.responsible_officer, '') ILIKE $${params.length}
+          OR i.category ILIKE $${params.length}
+          OR d.name ILIKE $${params.length}
+          OR m.bil_mesyuarat ILIKE $${params.length}
+        )`);
+      }
     }
     if (category) {
       const categoryLabels = getCategoryFamilyLabels(String(category)).map((item) => normalizeCategoryLabel(item));

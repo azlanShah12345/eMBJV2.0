@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
 import { CategoryStats, DashboardIssueFilters, Department, getCanonicalCategoryLabel, getCategoryFamilyMembers, getGroupedCategoryOptions, Meeting, PengelasanReport, User } from '../types';
-import { Filter, Download, TrendingUp, Users, FileSpreadsheet, Lock, CheckCircle2, Trash2, FileText, Tag, Building2, Clock3, RefreshCw, Activity, X } from 'lucide-react';
+import { Filter, Download, TrendingUp, Users, FileSpreadsheet, Lock, CheckCircle2, Trash2, FileText, Tag, Building2, Clock3, RefreshCw, Activity, X, Search } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
@@ -38,6 +38,7 @@ export default function Dashboard() {
   const [selectedYear, setSelectedYear] = useState('');
   const [bil, setBil] = useState('');
   const [category, setCategory] = useState('');
+  const [reportSearchKeyword, setReportSearchKeyword] = useState('');
   const [showExports, setShowExports] = useState(false);
   const [showOperationalQueue, setShowOperationalQueue] = useState(false);
   const [showAdvancedAnalytics, setShowAdvancedAnalytics] = useState(false);
@@ -335,18 +336,21 @@ export default function Dashboard() {
     year?: string;
     meetingLabel?: string;
     categoryLabel?: string;
+    keyword?: string;
     status?: 'Selesai' | 'Belum Selesai';
   } = {}): DashboardIssueFilters => {
     const resolvedDepartmentId = overrides.departmentId !== undefined ? String(overrides.departmentId) : deptId;
     const resolvedYear = overrides.year !== undefined ? overrides.year : selectedYear;
     const resolvedMeetingLabel = overrides.meetingLabel !== undefined ? overrides.meetingLabel : bil;
     const resolvedCategoryLabel = overrides.categoryLabel !== undefined ? overrides.categoryLabel : category;
+    const resolvedKeyword = overrides.keyword !== undefined ? overrides.keyword : '';
 
     return {
       department_id: resolvedDepartmentId || undefined,
       year: resolvedYear || undefined,
       bil_mesyuarat: resolvedMeetingLabel || undefined,
       category: resolvedCategoryLabel || undefined,
+      keyword: resolvedKeyword || undefined,
       status: overrides.status || undefined,
     };
   };
@@ -1101,6 +1105,19 @@ export default function Dashboard() {
     showToast('Jadual Pengelasan Excel berjaya dimuat turun');
   };
 
+  const handleIssueKeywordSearch = () => {
+    const trimmedKeyword = reportSearchKeyword.trim();
+    if (!trimmedKeyword) {
+      showToast('Masukkan kata kunci isu untuk membuat carian', 'error');
+      return;
+    }
+
+    setIssueDrilldownState({
+      title: `Carian Laporan Isu: "${trimmedKeyword}"`,
+      filters: buildIssueDrilldownFilters({ keyword: trimmedKeyword }),
+    });
+  };
+
   return (
     <div className="space-y-8">
       <ConfirmModal
@@ -1195,6 +1212,48 @@ export default function Dashboard() {
           >
             {showAdvancedAnalytics ? 'Sembunyikan Analitik Lanjutan' : 'Buka Analitik Lanjutan'}
           </button>
+        </div>
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Carian Laporan Isu</p>
+              <h3 className="mt-2 text-lg font-bold text-slate-900">Cari kata kunci untuk kesan jabatan yang melaporkan isu</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Taip kata kunci seperti nama sistem, parkir, tuntutan, atau pegawai. Hasil carian akan memaparkan jabatan,
+                mesyuarat, dan rekod rasmi yang sepadan dalam skop penapis semasa.
+              </p>
+            </div>
+            <div className="flex w-full flex-col gap-3 lg:w-[32rem]">
+              <div className="relative">
+                <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={reportSearchKeyword}
+                  onChange={(e) => setReportSearchKeyword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleIssueKeywordSearch();
+                    }
+                  }}
+                  placeholder="Contoh: parkir, server, tuntutan, kebajikan"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 py-3 pl-9 pr-4 text-sm font-medium text-slate-700 outline-none transition-colors focus:border-emerald-300 focus:bg-white focus:ring-2 focus:ring-emerald-500"
+                />
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  type="button"
+                  onClick={handleIssueKeywordSearch}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-slate-800"
+                >
+                  <Search size={16} />
+                  Cari Laporan Isu
+                </button>
+                <p className="self-center text-xs text-slate-500">
+                  Carian ini memfokuskan rekod yang telah dihantar ke HQ.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
         {showExports && (
           <div className="mt-4 grid grid-cols-1 gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-3">

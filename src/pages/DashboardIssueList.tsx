@@ -14,6 +14,7 @@ export default function DashboardIssueList({ user }: DashboardIssueListProps) {
     year: searchParams.get('year') || undefined,
     bil_mesyuarat: searchParams.get('bil_mesyuarat') || undefined,
     category: searchParams.get('category') || undefined,
+    keyword: searchParams.get('keyword') || undefined,
     status: (searchParams.get('status') as DashboardIssueFilters['status']) || undefined,
   };
 
@@ -23,6 +24,7 @@ export default function DashboardIssueList({ user }: DashboardIssueListProps) {
     if (filters.year) nextParams.set('year', filters.year);
     if (filters.bil_mesyuarat) nextParams.set('bil_mesyuarat', filters.bil_mesyuarat);
     if (filters.category) nextParams.set('category', filters.category);
+    if (filters.keyword) nextParams.set('keyword', filters.keyword);
     if (filters.status) nextParams.set('status', filters.status);
     setSearchParams(nextParams, { replace: true });
   };

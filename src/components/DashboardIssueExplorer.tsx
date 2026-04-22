@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Building2, CalendarDays, CheckCircle2, Clock3, FileText, ListFilter } from 'lucide-react';
+import { Building2, CalendarDays, CheckCircle2, Clock3, FileText, ListFilter, Search } from 'lucide-react';
 import { api } from '../services/api';
 import { DashboardIssue, DashboardIssueFilters, Department, getCanonicalCategoryLabel, getGroupedCategoryOptions, Meeting, User } from '../types';
 
@@ -42,6 +42,7 @@ export default function DashboardIssueExplorer({
   const [selectedYear, setSelectedYear] = useState(() => initialFilters?.year || '');
   const [selectedMeeting, setSelectedMeeting] = useState(() => initialFilters?.bil_mesyuarat || '');
   const [selectedCategory, setSelectedCategory] = useState(() => normalizeCategoryOption(initialFilters?.category));
+  const [selectedKeyword, setSelectedKeyword] = useState(() => String(initialFilters?.keyword || '').trim());
   const [selectedStatus, setSelectedStatus] = useState<'Selesai' | 'Belum Selesai' | ''>(
     () => normalizeStatus(initialFilters?.status) as 'Selesai' | 'Belum Selesai' | ''
   );
@@ -144,9 +145,10 @@ export default function DashboardIssueExplorer({
       year: selectedYear || undefined,
       bil_mesyuarat: selectedMeeting || undefined,
       category: selectedCategory || undefined,
+      keyword: selectedKeyword || undefined,
       status: selectedStatus || undefined,
     });
-  }, [onFiltersChange, selectedCategory, selectedDepartmentId, selectedMeeting, selectedStatus, selectedYear, user.department_id, user.role]);
+  }, [onFiltersChange, selectedCategory, selectedDepartmentId, selectedKeyword, selectedMeeting, selectedStatus, selectedYear, user.department_id, user.role]);
 
   useEffect(() => {
     const fetchIssues = async () => {
@@ -157,6 +159,7 @@ export default function DashboardIssueExplorer({
           year: selectedYear ? Number(selectedYear) : undefined,
           bil_mesyuarat: selectedMeeting || undefined,
           category: selectedCategory || undefined,
+          keyword: selectedKeyword || undefined,
           status: selectedStatus || undefined,
           official_only: user.role === 'ADMIN',
         });
@@ -170,7 +173,7 @@ export default function DashboardIssueExplorer({
     };
 
     fetchIssues();
-  }, [selectedCategory, selectedDepartmentId, selectedMeeting, selectedStatus, selectedYear, user.role]);
+  }, [selectedCategory, selectedDepartmentId, selectedKeyword, selectedMeeting, selectedStatus, selectedYear, user.role]);
 
   const totalIssues = issues.length;
   const completedIssues = issues.filter((issue) => issue.status === 'Selesai').length;
@@ -188,6 +191,7 @@ export default function DashboardIssueExplorer({
     setSelectedYear('');
     setSelectedMeeting('');
     setSelectedCategory('');
+    setSelectedKeyword('');
     setSelectedStatus('');
   };
 
@@ -218,7 +222,7 @@ export default function DashboardIssueExplorer({
           <ListFilter className="text-slate-700" size={18} />
           <h3 className="text-lg font-bold text-slate-900">Penapis Senarai Isu</h3>
         </div>
-        <div className={`mt-5 grid grid-cols-1 gap-4 ${user.role === 'ADMIN' ? 'md:grid-cols-2 xl:grid-cols-5' : 'md:grid-cols-2 xl:grid-cols-4'}`}>
+        <div className={`mt-5 grid grid-cols-1 gap-4 ${user.role === 'ADMIN' ? 'md:grid-cols-2 xl:grid-cols-6' : 'md:grid-cols-2 xl:grid-cols-5'}`}>
           {user.role === 'ADMIN' && (
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Jabatan</label>
@@ -279,6 +283,18 @@ export default function DashboardIssueExplorer({
             </select>
           </div>
           <div>
+            <label className="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Carian Isu</label>
+            <div className="relative">
+              <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                value={selectedKeyword}
+                onChange={(e) => setSelectedKeyword(e.target.value)}
+                placeholder="Contoh: parkir, tuntutan, server"
+                className="w-full rounded-lg border border-slate-200 bg-white py-2.5 pl-9 pr-3 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+          </div>
+          <div>
             <label className="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Kategori</label>
             <select
               value={selectedCategory}
@@ -303,9 +319,9 @@ export default function DashboardIssueExplorer({
             Reset penapis
           </button>
           {user.role === 'ADMIN' ? (
-            <p className="text-xs text-slate-500">Hanya rekod yang telah dihantar ke HQ dimasukkan dalam paparan pentadbir ini.</p>
+            <p className="text-xs text-slate-500">Hanya rekod yang telah dihantar ke HQ dimasukkan dalam paparan pentadbir ini. Carian akan menyemak tajuk isu, pegawai bertanggungjawab, dan kategori.</p>
           ) : (
-            <p className="text-xs text-slate-500">Pilih `Sepanjang Masa` untuk melihat semua isu jabatan tanpa had tahun.</p>
+            <p className="text-xs text-slate-500">Pilih `Sepanjang Masa` untuk melihat semua isu jabatan tanpa had tahun. Carian akan menyemak tajuk isu, pegawai bertanggungjawab, dan kategori.</p>
           )}
         </div>
       </div>
