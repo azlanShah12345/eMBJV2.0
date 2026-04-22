@@ -1,16 +1,18 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
-import { CategoryStats, Department, Meeting, PengelasanReport } from '../types';
-import { Filter, Download, TrendingUp, Users, FileSpreadsheet, Lock, CheckCircle2, Trash2, FileText, Tag, Building2, Clock3, RefreshCw, Activity } from 'lucide-react';
+import { CategoryStats, DashboardIssueFilters, Department, Meeting, PengelasanReport, User } from '../types';
+import { Filter, Download, TrendingUp, Users, FileSpreadsheet, Lock, CheckCircle2, Trash2, FileText, Tag, Building2, Clock3, RefreshCw, Activity, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
+import DashboardIssueExplorer from '../components/DashboardIssueExplorer';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 
 export default function Dashboard() {
   const { showToast } = useToast();
+  const currentUser = JSON.parse(sessionStorage.getItem('user') || 'null') as User | null;
   const [stats, setStats] = useState<CategoryStats[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
@@ -39,6 +41,10 @@ export default function Dashboard() {
   const [showExports, setShowExports] = useState(false);
   const [showOperationalQueue, setShowOperationalQueue] = useState(false);
   const [showAdvancedAnalytics, setShowAdvancedAnalytics] = useState(false);
+  const [issueDrilldownState, setIssueDrilldownState] = useState<{
+    title: string;
+    filters: DashboardIssueFilters;
+  } | null>(null);
   const statsRequestRef = useRef(0);
 
   const normalizeCategoryLabel = (value: unknown) => {
@@ -295,27 +301,25 @@ export default function Dashboard() {
   const activeYearLabel = selectedYear || 'Semua Tahun';
   const activeMeetingLabel = bil || 'Semua Mesyuarat';
   const activeCategoryLabel = category || 'Semua Kategori';
-  const buildIssueDrilldownLink = (overrides: {
+  const buildIssueDrilldownFilters = (overrides: {
     departmentId?: number | string;
     year?: string;
     meetingLabel?: string;
     categoryLabel?: string;
     status?: 'Selesai' | 'Belum Selesai';
-  } = {}) => {
-    const params = new URLSearchParams();
+  } = {}): DashboardIssueFilters => {
     const resolvedDepartmentId = overrides.departmentId !== undefined ? String(overrides.departmentId) : deptId;
     const resolvedYear = overrides.year !== undefined ? overrides.year : selectedYear;
     const resolvedMeetingLabel = overrides.meetingLabel !== undefined ? overrides.meetingLabel : bil;
     const resolvedCategoryLabel = overrides.categoryLabel !== undefined ? overrides.categoryLabel : category;
 
-    if (resolvedDepartmentId) params.set('department_id', resolvedDepartmentId);
-    if (resolvedYear) params.set('year', resolvedYear);
-    if (resolvedMeetingLabel) params.set('bil_mesyuarat', resolvedMeetingLabel);
-    if (resolvedCategoryLabel) params.set('category', resolvedCategoryLabel);
-    if (overrides.status) params.set('status', overrides.status);
-
-    const query = params.toString();
-    return `/dashboard/issues${query ? `?${query}` : ''}`;
+    return {
+      department_id: resolvedDepartmentId || undefined,
+      year: resolvedYear || undefined,
+      bil_mesyuarat: resolvedMeetingLabel || undefined,
+      category: resolvedCategoryLabel || undefined,
+      status: overrides.status || undefined,
+    };
   };
   const submittedMeetingsForLampiranA = meetings
     .filter((meeting) => meeting.is_locked === 1)
@@ -574,6 +578,11 @@ export default function Dashboard() {
           title: `Semak jabatan ${departmentsNeedingAttention[0].department}`,
           description: `${departmentsNeedingAttention[0].pending} isu masih tertunggak dengan kadar penyelesaian ${departmentsNeedingAttention[0].completion.toFixed(1)}%.`,
           tone: 'amber',
+          filters: buildIssueDrilldownFilters({
+            departmentId: departments.find((department) => department.name === departmentsNeedingAttention[0].department)?.id,
+            status: 'Belum Selesai',
+          }),
+          actionLabel: 'Lihat semua isu belum selesai',
         }
       : null,
     categoryPressureRanking[0]
@@ -581,6 +590,11 @@ export default function Dashboard() {
           title: `Fokus pada kategori ${categoryPressureRanking[0].category}`,
           description: `${categoryPressureRanking[0].belum_selesai} isu belum selesai sedang memberi tekanan tertinggi dalam skop semasa.`,
           tone: 'blue',
+          filters: buildIssueDrilldownFilters({
+            categoryLabel: categoryPressureRanking[0].category,
+            status: 'Belum Selesai',
+          }),
+          actionLabel: 'Lihat isu kategori ini',
         }
       : null,
     agingPendingMeetings[0]
@@ -588,6 +602,12 @@ export default function Dashboard() {
           title: `Susuli rekod lama ${agingPendingMeetings[0].bil_mesyuarat}`,
           description: `${agingPendingMeetings[0].department_name} masih mempunyai ${agingPendingMeetings[0].pending} isu tertunggak selepas ${agingPendingMeetings[0].ageDays} hari.`,
           tone: 'slate',
+          filters: buildIssueDrilldownFilters({
+            departmentId: agingPendingMeetings[0].department_id,
+            meetingLabel: agingPendingMeetings[0].bil_mesyuarat,
+            status: 'Belum Selesai',
+          }),
+          actionLabel: 'Lihat isu rekod ini',
         }
       : null,
     latestMonthTrend && previousMonthTrend
@@ -597,7 +617,13 @@ export default function Dashboard() {
           tone: monthlyCompletionDirection >= 0 ? 'emerald' : 'amber',
         }
       : null,
-  ].filter(Boolean) as Array<{ title: string; description: string; tone: 'emerald' | 'amber' | 'blue' | 'slate' }>;
+  ].filter(Boolean) as Array<{
+    title: string;
+    description: string;
+    tone: 'emerald' | 'amber' | 'blue' | 'slate';
+    filters?: DashboardIssueFilters;
+    actionLabel?: string;
+  }>;
   const selectedCategoryStats = category ? visibleStats.find((item) => item.category === category) : null;
   const relatedMeetings = submittedMeetings
     .filter((meeting) => {
@@ -1008,6 +1034,32 @@ export default function Dashboard() {
         onConfirm={confirmConfig.onConfirm}
         onCancel={() => setConfirmConfig(prev => ({ ...prev, isOpen: false }))}
       />
+      {issueDrilldownState && currentUser && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-sm">
+          <div className="flex h-[calc(100vh-2rem)] w-full max-w-7xl flex-col overflow-hidden rounded-[28px] border border-white/20 bg-slate-50 shadow-2xl">
+            <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Paparan Terapung</p>
+                <h3 className="mt-1 text-xl font-black text-slate-900">{issueDrilldownState.title}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIssueDrilldownState(null)}
+                className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:text-slate-800"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <DashboardIssueExplorer
+                user={currentUser}
+                initialFilters={issueDrilldownState.filters}
+                compact
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#eefbf4_52%,#ffffff_100%)] p-6 shadow-sm lg:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -1387,15 +1439,19 @@ export default function Dashboard() {
                     <h3 className="mt-3 text-xl font-black text-slate-900">{card.value}</h3>
                     <p className="mt-2 text-sm text-slate-500">{card.note}</p>
                     {card.label === 'Jabatan Perlu Perhatian' && departmentsNeedingAttention[0] && (
-                      <Link
-                        to={buildIssueDrilldownLink({
-                          departmentId: departments.find((department) => department.name === departmentsNeedingAttention[0].department)?.id,
-                          status: 'Belum Selesai',
+                      <button
+                        type="button"
+                        onClick={() => setIssueDrilldownState({
+                          title: `Isu Belum Selesai ${departmentsNeedingAttention[0].department}`,
+                          filters: buildIssueDrilldownFilters({
+                            departmentId: departments.find((department) => department.name === departmentsNeedingAttention[0].department)?.id,
+                            status: 'Belum Selesai',
+                          }),
                         })}
                         className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-amber-700 transition-colors hover:text-amber-800"
                       >
                         Lihat isu jabatan
-                      </Link>
+                      </button>
                     )}
                   </div>
                   <div className={`rounded-2xl p-3 ${accentClasses}`}>
@@ -1447,6 +1503,15 @@ export default function Dashboard() {
                         <div>
                           <p className="font-bold text-slate-900">{item.title}</p>
                           <p className="mt-1 text-sm leading-6 text-slate-600">{item.description}</p>
+                          {item.filters && item.actionLabel && (
+                            <button
+                              type="button"
+                              onClick={() => setIssueDrilldownState({ title: item.title, filters: item.filters! })}
+                              className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-emerald-700 transition-colors hover:text-emerald-800"
+                            >
+                              {item.actionLabel}
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1478,15 +1543,19 @@ export default function Dashboard() {
                         </span>
                       </div>
                       <div className="mt-3">
-                        <Link
-                          to={buildIssueDrilldownLink({
-                            departmentId: departments.find((department) => department.name === item.department)?.id,
-                            status: 'Belum Selesai',
+                        <button
+                          type="button"
+                          onClick={() => setIssueDrilldownState({
+                            title: `Isu Belum Selesai ${item.department}`,
+                            filters: buildIssueDrilldownFilters({
+                              departmentId: departments.find((department) => department.name === item.department)?.id,
+                              status: 'Belum Selesai',
+                            }),
                           })}
                           className="text-sm font-semibold text-emerald-700 transition-colors hover:text-emerald-800"
                         >
                           Lihat isu jabatan
-                        </Link>
+                        </button>
                       </div>
                     </div>
                   ))
@@ -1560,15 +1629,19 @@ export default function Dashboard() {
               {attentionDepartment ? `${attentionDepartment.pending} isu tertunggak dengan kadar selesai ${attentionDepartment.completion.toFixed(1)}%.` : 'Tiada jabatan tertunggak dalam skop semasa.'}
             </p>
             {attentionDepartment && (
-              <Link
-                to={buildIssueDrilldownLink({
-                  departmentId: departments.find((department) => department.name === attentionDepartment.department)?.id,
-                  status: 'Belum Selesai',
+              <button
+                type="button"
+                onClick={() => setIssueDrilldownState({
+                  title: `Isu Belum Selesai ${attentionDepartment.department}`,
+                  filters: buildIssueDrilldownFilters({
+                    departmentId: departments.find((department) => department.name === attentionDepartment.department)?.id,
+                    status: 'Belum Selesai',
+                  }),
                 })}
                 className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-700 transition-colors hover:text-amber-800"
               >
                 Drill masuk isu jabatan
-              </Link>
+              </button>
             )}
           </div>
           <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-5">
@@ -1677,14 +1750,18 @@ export default function Dashboard() {
                     <span>Selesai: {item.selesai}</span>
                     <div className="flex items-center gap-3">
                       <span>Tertunggak: {item.pending}</span>
-                      <Link
-                        to={buildIssueDrilldownLink({
-                          departmentId: departments.find((department) => department.name === item.department)?.id,
+                      <button
+                        type="button"
+                        onClick={() => setIssueDrilldownState({
+                          title: `Semua Isu ${item.department}`,
+                          filters: buildIssueDrilldownFilters({
+                            departmentId: departments.find((department) => department.name === item.department)?.id,
+                          }),
                         })}
                         className="text-sm font-semibold text-emerald-700 transition-colors hover:text-emerald-800"
                       >
                         Lihat isu
-                      </Link>
+                      </button>
                     </div>
                   </div>
                 </div>
