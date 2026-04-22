@@ -34,6 +34,10 @@ Salin [`.env.example`](./.env.example) kepada `.env` dan isi nilai sebenar:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `SUPABASE_STORAGE_BUCKET`
 - `ADMIN_DEFAULT_PASSWORD`
+- `MAINTENANCE_MODE`
+- `MAINTENANCE_TITLE`
+- `MAINTENANCE_MESSAGE`
+- `MAINTENANCE_STARTED_AT`
 - `PORT`
 - `HOST`
 
@@ -68,6 +72,45 @@ Tetapan Render semasa:
 - Build Command: `npm install && npm run build`
 - Start Command: `npm run start:render`
 - Health Check: `/api/health`
+
+## Mod Penyelenggaraan
+
+Sistem kini menyokong halaman `Maintenance` yang boleh diaktifkan tanpa ubah kod.
+
+Tetapan yang digunakan:
+
+- `MAINTENANCE_MODE=true`
+  Menghidupkan mod penyelenggaraan.
+- `MAINTENANCE_TITLE`
+  Tajuk rasmi yang dipaparkan pada halaman penyelenggaraan.
+- `MAINTENANCE_MESSAGE`
+  Mesej rasmi kepada pengguna.
+- `MAINTENANCE_STARTED_AT`
+  Masa mula penyelenggaraan untuk dipaparkan pada halaman tersebut.
+
+Contoh tetapan:
+
+```env
+MAINTENANCE_MODE=true
+MAINTENANCE_TITLE=Sistem eMBJ Sedang Diselenggara
+MAINTENANCE_MESSAGE=Sistem sedang ditutup sementara bagi kerja penyelenggaraan dan semakan teknikal. Sila cuba semula selepas kerja selesai.
+MAINTENANCE_STARTED_AT=2026-04-22T09:30:00+08:00
+```
+
+Cara guna di Render:
+
+1. Buka perkhidmatan aplikasi di Render.
+2. Pergi ke `Environment`.
+3. Tambah atau kemas kini pembolehubah di atas.
+4. Tetapkan `MAINTENANCE_MODE=true`.
+5. Simpan perubahan dan biarkan Render deploy semula servis.
+6. Selepas selesai, tukar semula `MAINTENANCE_MODE=false` dan deploy semula.
+
+Nota operasi:
+
+- Semasa mod ini aktif, frontend akan memaparkan halaman penyelenggaraan kepada semua pengguna.
+- API utama akan dipulangkan sebagai `503` kecuali endpoint awam status sistem dan health check.
+- Ini sesuai untuk deploy besar, pembaikan database, atau semakan production yang memerlukan sistem dihentikan sementara.
 
 ## Semakan Selepas Perubahan
 

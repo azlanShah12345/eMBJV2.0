@@ -1,4 +1,4 @@
-import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog, DashboardIssue } from '../types';
+import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog, DashboardIssue, SystemStatus } from '../types';
 
 const API_BASE = '/api';
 
@@ -44,6 +44,11 @@ export const api = {
 
   async getPublicDepartments(): Promise<Department[]> {
     const res = await fetch(`${API_BASE}/public/departments`);
+    return handleResponse(res);
+  },
+
+  async getPublicSystemStatus(): Promise<SystemStatus> {
+    const res = await fetch(`${API_BASE}/public/system-status`);
     return handleResponse(res);
   },
 

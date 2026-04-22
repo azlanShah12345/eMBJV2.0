@@ -24,6 +24,36 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const JWT_SECRET = process.env.JWT_SECRET || 'development-only-change-me';
+const MAINTENANCE_MODE = process.env.MAINTENANCE_MODE === 'true';
+const MAINTENANCE_TITLE = (process.env.MAINTENANCE_TITLE || 'Sistem Sedang Diselenggara').trim();
+const MAINTENANCE_MESSAGE = (process.env.MAINTENANCE_MESSAGE || 'Sistem eMBJ sedang melalui kerja penyelenggaraan sementara. Sila cuba semula sebentar lagi.').trim();
+const MAINTENANCE_STARTED_AT = (process.env.MAINTENANCE_STARTED_AT || '').trim() || null;
+
+const getSystemStatusPayload = () => ({
+  status: 'ok',
+  maintenance_mode: MAINTENANCE_MODE,
+  maintenance_title: MAINTENANCE_TITLE,
+  maintenance_message: MAINTENANCE_MESSAGE,
+  maintenance_started_at: MAINTENANCE_STARTED_AT,
+});
+
+const OFFICIAL_ISSUE_CATEGORIES = [
+  'Kewangan',
+  'Infrastruktur dan Fasiliti',
+  'Sumber manusia',
+  'Kebajikan/Pembudayaan Nilai',
+  'Inovasi dan Produktiviti',
+  'Lain-lain',
+] as const;
+const LEGACY_ISSUE_CATEGORIES = [
+  'Kewangan dan kemudahan',
+  'Pentadbiran',
+  'Sumber Manusia',
+  'Kebajikan',
+  'Inovasi dan produktivi',
+  'Lain-lain',
+] as const;
+const SEEDED_ISSUE_CATEGORIES = Array.from(new Set([...LEGACY_ISSUE_CATEGORIES, ...OFFICIAL_ISSUE_CATEGORIES]));
 
 const getRequestIp = (req: any) => {
   const forwardedFor = req.headers['x-forwarded-for'];
@@ -68,6 +98,79 @@ const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) 
   const jaccardScore = intersectionCount / unionCount;
 
   return Math.min(100, Math.max(0, Math.round((overlapScore * 70 + jaccardScore * 30) * 100)));
+};
+
+const normalizeCategoryLabel = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+
+const findOfficialIssueCategory = (category: unknown) => {
+  const normalized = normalizeCategoryLabel(category);
+  return OFFICIAL_ISSUE_CATEGORIES.find((item) => normalizeCategoryLabel(item) === normalized) || null;
+};
+
+const normalizeOfficialCategoryInput = (category: unknown) => {
+  const officialCategory = findOfficialIssueCategory(category);
+  if (!officialCategory) {
+    throw new Error('Kategori hanya boleh menggunakan pengelasan rasmi sistem.');
+  }
+  return officialCategory;
+};
+
+const normalizeIssueTitle = (title: unknown) => {
+  const normalized = String(title || '').trim();
+  if (!normalized) {
+    throw new Error('Tajuk isu diperlukan');
+  }
+  return normalized;
+};
+
+const normalizeIssueStatus = (status: unknown) => {
+  const normalized = String(status || '').trim();
+  if (!['Selesai', 'Belum Selesai'].includes(normalized)) {
+    throw new Error('Status isu tidak sah');
+  }
+  return normalized as 'Selesai' | 'Belum Selesai';
+};
+
+const normalizeResponsibleOfficer = (value: unknown) => {
+  const normalized = String(value || '').trim();
+  return normalized || null;
+};
+
+const normalizeIssueCategory = (
+  db: Database.Database,
+  category: unknown,
+  options: { officialOnly?: boolean } = {}
+) => {
+  const normalized = String(category || '').trim();
+  if (!normalized) {
+    throw new Error('Kategori isu diperlukan');
+  }
+
+  const officialCategory = findOfficialIssueCategory(normalized);
+  if (options.officialOnly) {
+    if (!officialCategory) {
+      throw new Error('Kategori isu baharu mesti menggunakan pengelasan rasmi semasa');
+    }
+    return officialCategory;
+  }
+
+  if (officialCategory) {
+    return officialCategory;
+  }
+
+  const categoryRow = db.prepare(
+    'SELECT name FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1'
+  ).get(normalized) as { name?: string } | undefined;
+
+  if (!categoryRow?.name) {
+    throw new Error('Kategori isu tidak sah mengikut senarai rasmi');
+  }
+
+  return String(categoryRow.name).trim();
 };
 
 async function startServer() {
@@ -299,13 +402,9 @@ async function startServer() {
     });
   }
 
-  // Seed Categories if empty
-  const catCount = db.prepare('SELECT COUNT(*) as count FROM categories').get().count;
-  if (catCount === 0) {
-    ['Kebajikan', 'Perjawatan', 'Kewangan', 'Infrastruktur', 'Lain-lain'].forEach(name => {
-      db.prepare('INSERT INTO categories (name) VALUES (?)').run(name);
-    });
-  }
+  SEEDED_ISSUE_CATEGORIES.forEach(name => {
+    db.prepare('INSERT OR IGNORE INTO categories (name) VALUES (?)').run(name);
+  });
 
   const MINIT_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
 
@@ -325,6 +424,30 @@ async function startServer() {
   app.use(cors());
   app.use(express.json());
   app.use('/uploads', express.static('uploads'));
+  app.get('/api/public/system-status', (req, res) => {
+    res.json(getSystemStatusPayload());
+  });
+  app.use('/api', (req, res, next) => {
+    if (!MAINTENANCE_MODE) {
+      next();
+      return;
+    }
+
+    const allowedPaths = new Set([
+      '/health',
+      '/public/system-status',
+    ]);
+
+    if (allowedPaths.has(req.path)) {
+      next();
+      return;
+    }
+
+    res.status(503).json({
+      ...getSystemStatusPayload(),
+      error: MAINTENANCE_MESSAGE,
+    });
+  });
 
   // Error handling wrapper
   const catchErrors = (fn: any) => async (req: any, res: any, next: any) => {
@@ -662,20 +785,40 @@ async function startServer() {
   }));
 
   app.post('/api/categories', authenticate, isAdmin, catchErrors((req: any, res: any) => {
-    const { name } = req.body;
-    const result = db.prepare('INSERT INTO categories (name) VALUES (?)').run(name);
+    const normalizedName = normalizeOfficialCategoryInput(req.body.name);
+    const existingCategory = db.prepare(
+      'SELECT id, name FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1'
+    ).get(normalizedName) as { id?: number; name?: string } | undefined;
+
+    if (existingCategory?.id) {
+      return res.json({ id: existingCategory.id });
+    }
+
+    const result = db.prepare('INSERT INTO categories (name) VALUES (?)').run(normalizedName);
     writeAuditLog(req, {
       actor: req.user,
       action: 'CREATE_CATEGORY',
       entityType: 'CATEGORY',
       entityId: result.lastInsertRowid,
-      targetLabel: name,
+      targetLabel: normalizedName,
     });
     res.json({ id: result.lastInsertRowid });
   }));
 
   app.delete('/api/categories/:id', authenticate, isAdmin, catchErrors((req: any, res: any) => {
     const category = db.prepare('SELECT name FROM categories WHERE id = ?').get(req.params.id) as any;
+    if (findOfficialIssueCategory(category?.name)) {
+      return res.status(400).json({ error: 'Kategori rasmi sistem tidak boleh dihapuskan.' });
+    }
+
+    const issueUsage = category?.name
+      ? db.prepare('SELECT COUNT(*) as total FROM issues WHERE LOWER(TRIM(category)) = LOWER(TRIM(?))').get(category.name) as { total?: number }
+      : null;
+
+    if (Number(issueUsage?.total || 0) > 0) {
+      return res.status(400).json({ error: 'Kategori ini masih digunakan pada isu yang telah direkodkan dan tidak boleh dihapuskan.' });
+    }
+
     db.prepare('DELETE FROM categories WHERE id = ?').run(req.params.id);
     writeAuditLog(req, {
       actor: req.user,
@@ -847,17 +990,21 @@ async function startServer() {
 
   app.post('/api/meetings/:id/issues', authenticate, catchErrors((req: any, res: any) => {
     const { category, title, status, responsible_officer, is_from_previous } = req.body;
+    const normalizedCategory = normalizeIssueCategory(db, category, { officialOnly: true });
+    const normalizedTitle = normalizeIssueTitle(title);
+    const normalizedStatus = normalizeIssueStatus(status);
+    const normalizedResponsibleOfficer = normalizeResponsibleOfficer(responsible_officer);
     const result = db.prepare(`
       INSERT INTO issues (meeting_id, category, is_from_previous, title, status, responsible_officer, updated_at) 
       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-    `).run(req.params.id, category, is_from_previous ? 1 : 0, title, status, responsible_officer || null);
+    `).run(req.params.id, normalizedCategory, is_from_previous ? 1 : 0, normalizedTitle, normalizedStatus, normalizedResponsibleOfficer);
     writeAuditLog(req, {
       actor: req.user,
       action: 'CREATE_ISSUE',
       entityType: 'ISSUE',
       entityId: result.lastInsertRowid,
-      targetLabel: title,
-      details: { meeting_id: req.params.id, category, status, is_from_previous: is_from_previous ? 1 : 0 },
+      targetLabel: normalizedTitle,
+      details: { meeting_id: req.params.id, category: normalizedCategory, status: normalizedStatus, is_from_previous: is_from_previous ? 1 : 0 },
     });
     res.json({ id: result.lastInsertRowid });
   }));
@@ -1001,10 +1148,10 @@ async function startServer() {
     const { status, title, category, responsible_officer, is_from_previous } = req.body;
     const updates = [];
     const params = [];
-    if (status) { updates.push('status = ?'); params.push(status); }
-    if (title) { updates.push('title = ?'); params.push(title); }
-    if (category) { updates.push('category = ?'); params.push(category); }
-    if (responsible_officer !== undefined) { updates.push('responsible_officer = ?'); params.push(responsible_officer); }
+    if (status !== undefined) { updates.push('status = ?'); params.push(normalizeIssueStatus(status)); }
+    if (title !== undefined) { updates.push('title = ?'); params.push(normalizeIssueTitle(title)); }
+    if (category !== undefined) { updates.push('category = ?'); params.push(normalizeIssueCategory(db, category)); }
+    if (responsible_officer !== undefined) { updates.push('responsible_officer = ?'); params.push(normalizeResponsibleOfficer(responsible_officer)); }
     if (is_from_previous !== undefined) { updates.push('is_from_previous = ?'); params.push(is_from_previous ? 1 : 0); }
     updates.push('updated_at = CURRENT_TIMESTAMP');
     params.push(req.params.id);

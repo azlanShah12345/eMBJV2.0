@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../services/api';
-import { Issue, MeetingMessage, SimilarIssue, User } from '../types';
+import { Issue, MeetingMessage, OFFICIAL_ISSUE_CATEGORIES, SimilarIssue, User } from '../types';
 import { ArrowLeft, Plus, Trash2, CheckCircle2, Circle, Lock, Download, FileText, XCircle, AlertTriangle, Send, MessageSquare, Sparkles } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
@@ -18,7 +18,6 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [messages, setMessages] = useState<MeetingMessage[]>([]);
   const [meeting, setMeeting] = useState<any>(null);
-  const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [isAddingIssue, setIsAddingIssue] = useState(false);
@@ -47,11 +46,12 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
 
   // New Issue Form
   const [newIssue, setNewIssue] = useState({
-    category: '',
+    category: OFFICIAL_ISSUE_CATEGORIES[0] || '',
     is_from_previous: false,
     title: '',
     status: 'Belum Selesai' as const
   });
+  const issueEntryCategories = OFFICIAL_ISSUE_CATEGORIES.map((name, index) => ({ id: index + 1, name }));
 
   useEffect(() => {
     fetchData();
@@ -109,19 +109,17 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
 
   const fetchData = async () => {
     try {
-      const [meetingData, issuesData, categoriesData, messagesData] = await Promise.all([
+      const [meetingData, issuesData, messagesData] = await Promise.all([
         api.getMeeting(Number(id)),
         api.getIssues(Number(id)),
-        api.getCategories(),
         api.getMeetingMessages(Number(id)),
       ]);
       setMeeting(meetingData);
       setIssues(issuesData);
-      setCategories(categoriesData);
       setMessages(messagesData);
       await api.markMeetingMessagesRead(Number(id));
-      if (categoriesData.length > 0 && !newIssue.category) {
-        setNewIssue(prev => ({ ...prev, category: categoriesData[0].name }));
+      if (!newIssue.category) {
+        setNewIssue(prev => ({ ...prev, category: OFFICIAL_ISSUE_CATEGORIES[0] || prev.category }));
       }
     } catch (err) {
       console.error(err);
@@ -148,7 +146,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
       await api.addIssue(Number(id), newIssue);
       setIsModalOpen(false);
       setNewIssue({
-        category: categories[0]?.name || '',
+        category: OFFICIAL_ISSUE_CATEGORIES[0] || '',
         is_from_previous: false,
         title: '',
         status: 'Belum Selesai'
@@ -417,7 +415,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
 
   const issueCategorySuggestion = getSuggestedIssueCategory(
     newIssue.title,
-    categories.map((item) => item.name)
+    issueEntryCategories.map((item) => item.name)
   );
   const hasIssueTitle = newIssue.title.trim().length > 0;
   const isSuggestionApplied = issueCategorySuggestion?.category === newIssue.category;
@@ -839,8 +837,11 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                     onChange={(e) => setNewIssue({...newIssue, category: e.target.value})}
                     className="w-full rounded-xl border border-slate-200 bg-slate-50 p-3 outline-none focus:ring-2 focus:ring-emerald-500"
                   >
-                    {categories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+                    {issueEntryCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
                   </select>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Isu baharu menggunakan pengelasan rasmi semasa. Rekod isu sejarah kekal pada kategori asal yang telah dilaporkan.
+                  </p>
                   {issueCategorySuggestion ? (
                     <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
