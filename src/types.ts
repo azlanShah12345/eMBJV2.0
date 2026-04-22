@@ -154,11 +154,22 @@ export interface PengelasanReport {
   };
 }
 
-export const CATEGORIES = [
-  'Kewangan dan Kemudahan',
-  'Pentadbiran',
-  'Sumber Manusia',
-  'Kebajikan',
+export const OFFICIAL_ISSUE_CATEGORIES = [
+  'Kewangan',
+  'Infrastruktur dan Fasiliti',
+  'Sumber manusia',
+  'Kebajikan/Pembudayaan Nilai',
   'Inovasi dan Produktiviti',
   'Lain-lain'
 ];
+
+export const LEGACY_ISSUE_CATEGORIES = [
+  'Kewangan dan kemudahan',
+  'Pentadbiran',
+  'Sumber Manusia',
+  'Kebajikan',
+  'Inovasi dan produktivi',
+  'Lain-lain'
+];
+
+export const CATEGORIES = OFFICIAL_ISSUE_CATEGORIES;

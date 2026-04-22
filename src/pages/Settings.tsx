@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { User, Department } from '../types';
+import { User, Department, OFFICIAL_ISSUE_CATEGORIES } from '../types';
 import { Users, Building2, Tag, Trash2, UserPlus, CheckCircle2, XCircle, Clock3 } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
@@ -29,13 +29,32 @@ export default function Settings() {
   // Form states
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'USER', department_id: '' });
   const [newDept, setNewDept] = useState('');
-  const [newCat, setNewCat] = useState('');
+  const [newCat, setNewCat] = useState(OFFICIAL_ISSUE_CATEGORIES[0] || '');
   const pendingUsers = users.filter((user) => user.status === 'PENDING');
   const managedUsers = users.filter((user) => user.status !== 'PENDING');
+  const normalizeCategoryName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+  const missingOfficialCategories = OFFICIAL_ISSUE_CATEGORIES.filter(
+    (officialCategory) => !categories.some((category) => normalizeCategoryName(category.name) === normalizeCategoryName(officialCategory))
+  );
 
   useEffect(() => {
     fetchData(activeTab);
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'categories') return;
+
+    if (missingOfficialCategories.length === 0) {
+      if (newCat !== '') {
+        setNewCat('');
+      }
+      return;
+    }
+
+    if (!missingOfficialCategories.includes(newCat as typeof missingOfficialCategories[number])) {
+      setNewCat(missingOfficialCategories[0]);
+    }
+  }, [activeTab, missingOfficialCategories, newCat]);
 
   const fetchData = async (tab: 'users' | 'departments' | 'categories' = activeTab) => {
     setLoading(true);
@@ -101,6 +120,10 @@ export default function Settings() {
 
   const handleCreateCat = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newCat) {
+      showToast('Tiada kategori rasmi baharu untuk ditambah', 'error');
+      return;
+    }
     try {
       setIsCreating(true);
       await api.createCategory(newCat);
@@ -354,22 +377,36 @@ export default function Settings() {
             {activeTab === 'categories' && (
               <form onSubmit={handleCreateCat} className="space-y-4">
                 <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                  <Tag size={20} className="text-emerald-600" /> Tambah Kategori
+                  <Tag size={20} className="text-emerald-600" /> Selaras Kategori Rasmi
                 </h3>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                  Padanan kategori database kini dikunci kepada pengelasan rasmi sistem. Kategori sejarah yang telah digunakan pada rekod lama dikekalkan untuk tujuan audit dan laporan.
+                </div>
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nama Kategori</label>
-                  <input 
-                    type="text"
-                    required
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Kategori Rasmi Yang Belum Wujud</label>
+                  <select
                     value={newCat}
                     onChange={(e) => setNewCat(e.target.value)}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
-                    placeholder="contoh: Kebajikan"
-                  />
+                    disabled={missingOfficialCategories.length === 0}
+                  >
+                    {missingOfficialCategories.length === 0 ? (
+                      <option value="">Semua kategori rasmi telah tersedia</option>
+                    ) : (
+                      missingOfficialCategories.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Kategori bebas tidak lagi dibenarkan supaya nama kategori kekal seragam untuk matching database dan laporan.
+                  </p>
                 </div>
                 <button 
                   type="submit" 
-                  disabled={isCreating}
+                  disabled={isCreating || missingOfficialCategories.length === 0}
                   className="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {isCreating ? (
@@ -378,7 +415,7 @@ export default function Settings() {
                       Sedang menambah...
                     </>
                   ) : (
-                    'Tambah Kategori'
+                    missingOfficialCategories.length === 0 ? 'Tiada Kategori Baharu Diperlukan' : 'Tambah Kategori Rasmi'
                   )}
                 </button>
               </form>
