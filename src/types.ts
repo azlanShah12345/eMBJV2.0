@@ -172,3 +172,9 @@ export const LEGACY_ISSUE_CATEGORIES = [
 ];
 
 export const CATEGORIES = OFFICIAL_ISSUE_CATEGORIES;
+
+export const CATEGORY_FAMILY_MAP: Record<string, string[]> = {
+  Kewangan: ['Kewangan dan kemudahan'],
+  'Kebajikan/Pembudayaan Nilai': ['Kebajikan'],
+  'Inovasi dan Produktiviti': ['Inovasi dan produktivi'],
+};
