@@ -76,6 +76,16 @@ export interface SimilarIssue {
   is_same_meeting: boolean;
 }
 
+export interface IssueCategorySuggestion {
+  category: string;
+  matched_keywords: string[];
+  score: number;
+  source: 'data' | 'keyword';
+  support_count: number;
+  department_support_count: number;
+  confidence: 'tinggi' | 'sederhana';
+}
+
 export interface MeetingMessage {
   id: number;
   meeting_id: number;

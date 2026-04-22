@@ -1,4 +1,4 @@
-import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog, DashboardIssue, SystemStatus } from '../types';
+import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog, DashboardIssue, SystemStatus, IssueCategorySuggestion } from '../types';
 
 const API_BASE = '/api';
 
@@ -112,6 +112,12 @@ export const api = {
   async getSimilarIssues(meetingId: number, title: string): Promise<SimilarIssue[]> {
     const query = new URLSearchParams({ title }).toString();
     const res = await fetch(`${API_BASE}/meetings/${meetingId}/similar-issues?${query}`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getIssueCategorySuggestion(meetingId: number, title: string): Promise<IssueCategorySuggestion | null> {
+    const query = new URLSearchParams({ title }).toString();
+    const res = await fetch(`${API_BASE}/meetings/${meetingId}/issue-category-suggestion?${query}`, { headers: getHeaders() });
     return handleResponse(res);
   },
 

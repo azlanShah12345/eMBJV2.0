@@ -10,6 +10,7 @@ import multer from 'multer';
 import { Pool } from 'pg';
 import { createClient } from '@supabase/supabase-js';
 import { createServer as createViteServer } from 'vite';
+import { calculateIssueSuggestionSimilarity, getSuggestedIssueCategory } from './src/utils/issueCategorySuggestion.ts';
 
 dotenv.config();
 
@@ -347,40 +348,8 @@ const getIssueComparisonTokens = (value: unknown) =>
     .split(' ')
     .filter((token) => token.length >= 3);
 
-const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) => {
-  const normalizedLeft = normalizeIssueComparisonText(leftTitle);
-  const normalizedRight = normalizeIssueComparisonText(rightTitle);
-
-  if (!normalizedLeft || !normalizedRight) {
-    return 0;
-  }
-
-  if (normalizedLeft === normalizedRight) {
-    return 100;
-  }
-
-  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) {
-    return 92;
-  }
-
-  const leftTokens = Array.from(new Set(getIssueComparisonTokens(normalizedLeft)));
-  const rightTokens = Array.from(new Set(getIssueComparisonTokens(normalizedRight)));
-  if (leftTokens.length === 0 || rightTokens.length === 0) {
-    return 0;
-  }
-
-  const rightTokenSet = new Set(rightTokens);
-  const intersectionCount = leftTokens.filter((token) => rightTokenSet.has(token)).length;
-  if (intersectionCount === 0) {
-    return 0;
-  }
-
-  const unionCount = new Set([...leftTokens, ...rightTokens]).size;
-  const overlapScore = intersectionCount / Math.min(leftTokens.length, rightTokens.length);
-  const jaccardScore = intersectionCount / unionCount;
-
-  return Math.min(100, Math.max(0, Math.round((overlapScore * 70 + jaccardScore * 30) * 100)));
-};
+const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) =>
+  calculateIssueSuggestionSimilarity(String(leftTitle || ''), String(rightTitle || ''));
 
 const normalizeResponsibleOfficer = (responsibleOfficer: unknown) => {
   const normalized = String(responsibleOfficer || '').trim();
@@ -1348,6 +1317,45 @@ async function startServer() {
       .slice(0, 6);
 
     res.json(similarIssues);
+  }));
+
+  app.get('/api/meetings/:id/issue-category-suggestion', authenticate, asyncHandler(async (req: any, res) => {
+    const meeting = await getMeetingAccessRecord(req.params.id);
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
+    }
+
+    const requestedTitle = String(req.query.title || '').trim();
+    if (!requestedTitle) {
+      return res.json(null);
+    }
+
+    const issueResult = await query(
+      `
+      SELECT
+        i.title,
+        i.category,
+        m.department_id
+      FROM issues i
+      JOIN meetings m ON m.id = i.meeting_id
+      WHERE TRIM(i.title) <> ''
+      ORDER BY i.updated_at DESC, i.id DESC
+      LIMIT 1200
+      `
+    );
+
+    const suggestion = getSuggestedIssueCategory(
+      requestedTitle,
+      [...OFFICIAL_ISSUE_CATEGORIES],
+      issueResult.rows.map((row: any) => ({
+        title: String(row.title || ''),
+        category: String(row.category || ''),
+        departmentId: row.department_id !== null && row.department_id !== undefined ? Number(row.department_id) : null,
+      }))
+    );
+
+    res.json(suggestion);
   }));
 
   app.post('/api/meetings/:id/issues', authenticate, asyncHandler(async (req: any, res) => {

@@ -18,6 +18,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import dotenv from 'dotenv';
+import { calculateIssueSuggestionSimilarity, getSuggestedIssueCategory } from './src/utils/issueCategorySuggestion.ts';
 
 dotenv.config();
 
@@ -78,28 +79,8 @@ const getIssueComparisonTokens = (value: unknown) =>
     .split(' ')
     .filter((token) => token.length >= 3);
 
-const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) => {
-  const normalizedLeft = normalizeIssueComparisonText(leftTitle);
-  const normalizedRight = normalizeIssueComparisonText(rightTitle);
-
-  if (!normalizedLeft || !normalizedRight) return 0;
-  if (normalizedLeft === normalizedRight) return 100;
-  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) return 92;
-
-  const leftTokens = Array.from(new Set(getIssueComparisonTokens(normalizedLeft)));
-  const rightTokens = Array.from(new Set(getIssueComparisonTokens(normalizedRight)));
-  if (leftTokens.length === 0 || rightTokens.length === 0) return 0;
-
-  const rightTokenSet = new Set(rightTokens);
-  const intersectionCount = leftTokens.filter((token) => rightTokenSet.has(token)).length;
-  if (intersectionCount === 0) return 0;
-
-  const unionCount = new Set([...leftTokens, ...rightTokens]).size;
-  const overlapScore = intersectionCount / Math.min(leftTokens.length, rightTokens.length);
-  const jaccardScore = intersectionCount / unionCount;
-
-  return Math.min(100, Math.max(0, Math.round((overlapScore * 70 + jaccardScore * 30) * 100)));
-};
+const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) =>
+  calculateIssueSuggestionSimilarity(String(leftTitle || ''), String(rightTitle || ''));
 
 const normalizeCategoryLabel = (value: unknown) =>
   String(value || '')
@@ -1006,6 +987,48 @@ async function startServer() {
       .slice(0, 6);
 
     res.json(similarIssues);
+  }));
+
+  app.get('/api/meetings/:id/issue-category-suggestion', authenticate, catchErrors((req: any, res: any) => {
+    const meeting = db.prepare(`
+      SELECT m.id, m.department_id
+      FROM meetings m
+      WHERE m.id = ?
+    `).get(req.params.id) as any;
+
+    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
+    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
+      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
+    }
+
+    const requestedTitle = String(req.query.title || '').trim();
+    if (!requestedTitle) {
+      return res.json(null);
+    }
+
+    const issueExamples = db.prepare(`
+      SELECT
+        i.title,
+        i.category,
+        m.department_id
+      FROM issues i
+      JOIN meetings m ON m.id = i.meeting_id
+      WHERE TRIM(i.title) <> ''
+      ORDER BY datetime(i.updated_at) DESC, i.id DESC
+      LIMIT 1200
+    `).all() as Array<{ title: string; category: string; department_id: number | null }>;
+
+    const suggestion = getSuggestedIssueCategory(
+      requestedTitle,
+      [...OFFICIAL_ISSUE_CATEGORIES],
+      issueExamples.map((row) => ({
+        title: String(row.title || ''),
+        category: String(row.category || ''),
+        departmentId: row.department_id !== null && row.department_id !== undefined ? Number(row.department_id) : null,
+      }))
+    );
+
+    res.json(suggestion);
   }));
 
   app.post('/api/meetings/:id/issues', authenticate, catchErrors((req: any, res: any) => {
