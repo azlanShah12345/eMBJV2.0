@@ -60,7 +60,7 @@ const MINIT_UPLOAD_LIMIT_BYTES = 25 * 1024 * 1024;
 const OFFICIAL_ISSUE_CATEGORIES = [
   'Kewangan',
   'Infrastruktur dan Fasiliti',
-  'Sumber manusia',
+  'Sumber Manusia',
   'Kebajikan/Pembudayaan Nilai',
   'Inovasi dan Produktiviti',
   'Lain-lain',
@@ -68,7 +68,6 @@ const OFFICIAL_ISSUE_CATEGORIES = [
 const LEGACY_ISSUE_CATEGORIES = [
   'Kewangan dan kemudahan',
   'Pentadbiran',
-  'Sumber Manusia',
   'Kebajikan',
   'Inovasi dan produktivi',
   'Lain-lain',

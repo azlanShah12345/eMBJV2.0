@@ -157,7 +157,7 @@ export interface PengelasanReport {
 export const OFFICIAL_ISSUE_CATEGORIES = [
   'Kewangan',
   'Infrastruktur dan Fasiliti',
-  'Sumber manusia',
+  'Sumber Manusia',
   'Kebajikan/Pembudayaan Nilai',
   'Inovasi dan Produktiviti',
   'Lain-lain'
@@ -166,7 +166,6 @@ export const OFFICIAL_ISSUE_CATEGORIES = [
 export const LEGACY_ISSUE_CATEGORIES = [
   'Kewangan dan kemudahan',
   'Pentadbiran',
-  'Sumber Manusia',
   'Kebajikan',
   'Inovasi dan produktivi',
   'Lain-lain'
