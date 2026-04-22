@@ -45,6 +45,14 @@ export interface Issue {
   updated_at: string;
 }
 
+export interface DashboardIssue extends Issue {
+  meeting_label: string;
+  meeting_date: string;
+  department_id: number;
+  department_name: string;
+  meeting_is_locked: number;
+}
+
 export interface SimilarIssue {
   id: number;
   meeting_id: number;

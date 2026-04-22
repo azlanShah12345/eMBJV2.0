@@ -1,4 +1,4 @@
-import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog } from '../types';
+import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog, DashboardIssue } from '../types';
 
 const API_BASE = '/api';
 
@@ -72,6 +72,26 @@ export const api = {
 
   async getIssues(meetingId: number): Promise<Issue[]> {
     const res = await fetch(`${API_BASE}/meetings/${meetingId}/issues`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getDashboardIssues(params: {
+    department_id?: number;
+    bil_mesyuarat?: string;
+    category?: string;
+    year?: number;
+    status?: 'Selesai' | 'Belum Selesai';
+    official_only?: boolean;
+  }): Promise<DashboardIssue[]> {
+    const query = new URLSearchParams(
+      Object.entries(params).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          acc[key] = typeof value === 'boolean' ? (value ? '1' : '0') : String(value);
+        }
+        return acc;
+      }, {})
+    ).toString();
+    const res = await fetch(`${API_BASE}/dashboard/issues${query ? `?${query}` : ''}`, { headers: getHeaders() });
     return handleResponse(res);
   },
 

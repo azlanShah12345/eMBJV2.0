@@ -76,6 +76,13 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
       issues: yearlyIssues,
     };
   });
+  const buildIssueLink = (status?: 'Selesai' | 'Belum Selesai', year?: string) => {
+    const params = new URLSearchParams();
+    if (year) params.set('year', year);
+    if (status) params.set('status', status);
+    const query = params.toString();
+    return `/dashboard/issues${query ? `?${query}` : ''}`;
+  };
 
   return (
     <div className="space-y-8">
@@ -155,6 +162,44 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
               <BarChart3 size={22} />
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-lg font-bold text-slate-900">Semakan Senarai Isu</h3>
+            <p className="mt-1 text-sm text-slate-500">Buka paparan senarai isu untuk melihat status selesai atau belum selesai mengikut tahun semasa atau sepanjang masa.</p>
+          </div>
+          <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.24em] text-slate-500">
+            Jabatan anda sahaja
+          </div>
+        </div>
+        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <Link
+            to={buildIssueLink('Belum Selesai', selectedYear)}
+            className="rounded-2xl border border-amber-100 bg-amber-50 p-5 transition-colors hover:bg-amber-100/60"
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-amber-700">Isu Belum Selesai</p>
+            <p className="mt-3 text-2xl font-black text-slate-900">{pendingIssues}</p>
+            <p className="mt-2 text-sm text-slate-600">Lihat semua isu belum selesai untuk tahun {selectedYear || 'dipilih'}.</p>
+          </Link>
+          <Link
+            to={buildIssueLink('Selesai', selectedYear)}
+            className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 transition-colors hover:bg-emerald-100/60"
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Isu Selesai</p>
+            <p className="mt-3 text-2xl font-black text-slate-900">{completedIssues}</p>
+            <p className="mt-2 text-sm text-slate-600">Lihat semua isu selesai untuk tahun {selectedYear || 'dipilih'}.</p>
+          </Link>
+          <Link
+            to={buildIssueLink()}
+            className="rounded-2xl border border-slate-200 bg-slate-50 p-5 transition-colors hover:bg-white"
+          >
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Sepanjang Masa</p>
+            <p className="mt-3 text-2xl font-black text-slate-900">{meetings.reduce((sum, meeting) => sum + Number(meeting.total_issues || 0), 0)}</p>
+            <p className="mt-2 text-sm text-slate-600">Buka semua isu jabatan merentasi semua tahun untuk semakan menyeluruh.</p>
+          </Link>
         </div>
       </div>
 
