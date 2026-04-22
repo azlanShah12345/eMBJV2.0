@@ -53,6 +53,14 @@ export interface DashboardIssue extends Issue {
   meeting_is_locked: number;
 }
 
+export interface DashboardIssueFilters {
+  department_id?: string;
+  year?: string;
+  bil_mesyuarat?: string;
+  category?: string;
+  status?: 'Selesai' | 'Belum Selesai' | '';
+}
+
 export interface SimilarIssue {
   id: number;
   meeting_id: number;
@@ -114,6 +122,14 @@ export interface CategoryStats {
   total: number;
   selesai: number;
   belum_selesai: number;
+}
+
+export interface SystemStatus {
+  status: string;
+  maintenance_mode: boolean;
+  maintenance_title: string;
+  maintenance_message: string;
+  maintenance_started_at: string | null;
 }
 
 export interface PengelasanRow {

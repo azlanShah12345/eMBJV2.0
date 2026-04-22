@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Clock3, FileText, FolderArchive } from 'lucide-react';
+import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Clock3, FileText, FolderArchive, X } from 'lucide-react';
 import { api } from '../services/api';
-import { Meeting, User } from '../types';
+import DashboardIssueExplorer from '../components/DashboardIssueExplorer';
+import { DashboardIssueFilters, Meeting, User } from '../types';
 
 interface DeptDashboardProps {
   user: User;
@@ -12,6 +13,10 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState('');
+  const [issueDrilldownState, setIssueDrilldownState] = useState<{
+    title: string;
+    filters: DashboardIssueFilters;
+  } | null>(null);
 
   useEffect(() => {
     fetchMeetings();
@@ -76,16 +81,40 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
       issues: yearlyIssues,
     };
   });
-  const buildIssueLink = (status?: 'Selesai' | 'Belum Selesai', year?: string) => {
-    const params = new URLSearchParams();
-    if (year) params.set('year', year);
-    if (status) params.set('status', status);
-    const query = params.toString();
-    return `/dashboard/issues${query ? `?${query}` : ''}`;
-  };
+  const buildIssueFilters = (status?: 'Selesai' | 'Belum Selesai', year?: string): DashboardIssueFilters => ({
+    year: year || undefined,
+    status: status || undefined,
+  });
 
   return (
     <div className="space-y-8">
+      {issueDrilldownState && (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-sm">
+          <div className="flex h-[calc(100vh-2rem)] w-full max-w-7xl flex-col overflow-hidden rounded-[28px] border border-white/20 bg-slate-50 shadow-2xl">
+            <div className="flex items-center justify-between gap-4 border-b border-slate-200 bg-white px-6 py-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Paparan Terapung</p>
+                <h3 className="mt-1 text-xl font-black text-slate-900">{issueDrilldownState.title}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIssueDrilldownState(null)}
+                className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-500 transition-colors hover:text-slate-800"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              <DashboardIssueExplorer
+                user={user}
+                initialFilters={issueDrilldownState.filters}
+                compact
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Papan Pemuka Jabatan</h2>
@@ -176,30 +205,42 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
           </div>
         </div>
         <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <Link
-            to={buildIssueLink('Belum Selesai', selectedYear)}
+          <button
+            type="button"
+            onClick={() => setIssueDrilldownState({
+              title: `Isu Belum Selesai ${selectedYear || 'Sepanjang Masa'}`,
+              filters: buildIssueFilters('Belum Selesai', selectedYear),
+            })}
             className="rounded-2xl border border-amber-100 bg-amber-50 p-5 transition-colors hover:bg-amber-100/60"
           >
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-amber-700">Isu Belum Selesai</p>
             <p className="mt-3 text-2xl font-black text-slate-900">{pendingIssues}</p>
             <p className="mt-2 text-sm text-slate-600">Lihat semua isu belum selesai untuk tahun {selectedYear || 'dipilih'}.</p>
-          </Link>
-          <Link
-            to={buildIssueLink('Selesai', selectedYear)}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIssueDrilldownState({
+              title: `Isu Selesai ${selectedYear || 'Sepanjang Masa'}`,
+              filters: buildIssueFilters('Selesai', selectedYear),
+            })}
             className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 transition-colors hover:bg-emerald-100/60"
           >
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-emerald-700">Isu Selesai</p>
             <p className="mt-3 text-2xl font-black text-slate-900">{completedIssues}</p>
             <p className="mt-2 text-sm text-slate-600">Lihat semua isu selesai untuk tahun {selectedYear || 'dipilih'}.</p>
-          </Link>
-          <Link
-            to={buildIssueLink()}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIssueDrilldownState({
+              title: 'Semua Isu Jabatan',
+              filters: buildIssueFilters(),
+            })}
             className="rounded-2xl border border-slate-200 bg-slate-50 p-5 transition-colors hover:bg-white"
           >
             <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-500">Sepanjang Masa</p>
             <p className="mt-3 text-2xl font-black text-slate-900">{meetings.reduce((sum, meeting) => sum + Number(meeting.total_issues || 0), 0)}</p>
             <p className="mt-2 text-sm text-slate-600">Buka semua isu jabatan merentasi semua tahun untuk semakan menyeluruh.</p>
-          </Link>
+          </button>
         </div>
       </div>
 
