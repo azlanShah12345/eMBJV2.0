@@ -158,15 +158,13 @@ export const OFFICIAL_ISSUE_CATEGORIES = [
   'Kewangan',
   'Infrastruktur dan Fasiliti',
   'Sumber Manusia',
-  'Kebajikan/Pembudayaan Nilai',
+  'Kebajikan',
   'Inovasi dan Produktiviti',
   'Lain-lain'
 ];
 
 export const LEGACY_ISSUE_CATEGORIES = [
-  'Kewangan dan kemudahan',
   'Pentadbiran',
-  'Kebajikan',
   'Inovasi dan produktivi',
   'Lain-lain'
 ];
@@ -174,7 +172,48 @@ export const LEGACY_ISSUE_CATEGORIES = [
 export const CATEGORIES = OFFICIAL_ISSUE_CATEGORIES;
 
 export const CATEGORY_FAMILY_MAP: Record<string, string[]> = {
-  Kewangan: ['Kewangan dan kemudahan'],
-  'Kebajikan/Pembudayaan Nilai': ['Kebajikan'],
   'Inovasi dan Produktiviti': ['Inovasi dan produktivi'],
+};
+
+const normalizeCategoryFamilyLabel = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
+
+export const getCanonicalCategoryLabel = (value: string) => {
+  const normalizedValue = normalizeCategoryFamilyLabel(value);
+  const matchedOfficial = Object.keys(CATEGORY_FAMILY_MAP).find((officialCategory) => {
+    if (normalizeCategoryFamilyLabel(officialCategory) === normalizedValue) {
+      return true;
+    }
+
+    return CATEGORY_FAMILY_MAP[officialCategory].some(
+      (alias) => normalizeCategoryFamilyLabel(alias) === normalizedValue
+    );
+  });
+
+  return matchedOfficial || value.trim();
+};
+
+export const getCategoryFamilyMembers = (value: string) => {
+  const canonical = getCanonicalCategoryLabel(value);
+  const aliases = CATEGORY_FAMILY_MAP[canonical] || [];
+  return [canonical, ...aliases];
+};
+
+export const getGroupedCategoryOptions = (categories: { id: number; name: string }[]) => {
+  const seen = new Set<string>();
+  const grouped = categories.reduce<{ id: number; name: string }[]>((acc, category) => {
+    const canonical = getCanonicalCategoryLabel(category.name);
+    const normalizedCanonical = normalizeCategoryFamilyLabel(canonical);
+    if (seen.has(normalizedCanonical)) {
+      return acc;
+    }
+
+    seen.add(normalizedCanonical);
+    acc.push({
+      id: category.id,
+      name: canonical,
+    });
+    return acc;
+  }, []);
+
+  return grouped.sort((left, right) => left.name.localeCompare(right.name, 'ms'));
 };

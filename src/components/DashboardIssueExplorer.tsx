@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, CalendarDays, CheckCircle2, Clock3, FileText, ListFilter } from 'lucide-react';
 import { api } from '../services/api';
-import { DashboardIssue, DashboardIssueFilters, Department, Meeting, User } from '../types';
+import { DashboardIssue, DashboardIssueFilters, Department, getCanonicalCategoryLabel, getGroupedCategoryOptions, Meeting, User } from '../types';
 
 interface DashboardIssueExplorerProps {
   user: User;
@@ -17,6 +17,11 @@ const normalizeStatus = (value?: string | null) =>
 const formatDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('ms-MY');
+};
+
+const normalizeCategoryOption = (value?: string | null) => {
+  const normalized = String(value || '').trim();
+  return normalized ? getCanonicalCategoryLabel(normalized) : '';
 };
 
 export default function DashboardIssueExplorer({
@@ -36,7 +41,7 @@ export default function DashboardIssueExplorer({
   );
   const [selectedYear, setSelectedYear] = useState(() => initialFilters?.year || '');
   const [selectedMeeting, setSelectedMeeting] = useState(() => initialFilters?.bil_mesyuarat || '');
-  const [selectedCategory, setSelectedCategory] = useState(() => initialFilters?.category || '');
+  const [selectedCategory, setSelectedCategory] = useState(() => normalizeCategoryOption(initialFilters?.category));
   const [selectedStatus, setSelectedStatus] = useState<'Selesai' | 'Belum Selesai' | ''>(
     () => normalizeStatus(initialFilters?.status) as 'Selesai' | 'Belum Selesai' | ''
   );
@@ -111,6 +116,27 @@ export default function DashboardIssueExplorer({
       setSelectedMeeting('');
     }
   }, [meetingOptions, selectedMeeting]);
+
+  const groupedCategoryOptions = getGroupedCategoryOptions(categories);
+
+  useEffect(() => {
+    const normalizedCategory = normalizeCategoryOption(selectedCategory);
+    if (!normalizedCategory) {
+      if (selectedCategory) {
+        setSelectedCategory('');
+      }
+      return;
+    }
+
+    if (!groupedCategoryOptions.some((item) => item.name === normalizedCategory)) {
+      setSelectedCategory('');
+      return;
+    }
+
+    if (selectedCategory !== normalizedCategory) {
+      setSelectedCategory(normalizedCategory);
+    }
+  }, [groupedCategoryOptions, selectedCategory]);
 
   useEffect(() => {
     onFiltersChange?.({
@@ -260,7 +286,7 @@ export default function DashboardIssueExplorer({
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
             >
               <option value="">Semua Kategori</option>
-              {categories.map((category) => (
+              {groupedCategoryOptions.map((category) => (
                 <option key={category.id} value={category.name}>
                   {category.name}
                 </option>

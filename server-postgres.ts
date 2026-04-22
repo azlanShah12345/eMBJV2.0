@@ -61,17 +61,18 @@ const OFFICIAL_ISSUE_CATEGORIES = [
   'Kewangan',
   'Infrastruktur dan Fasiliti',
   'Sumber Manusia',
-  'Kebajikan/Pembudayaan Nilai',
+  'Kebajikan',
   'Inovasi dan Produktiviti',
   'Lain-lain',
 ] as const;
 const LEGACY_ISSUE_CATEGORIES = [
-  'Kewangan dan kemudahan',
   'Pentadbiran',
-  'Kebajikan',
   'Inovasi dan produktivi',
   'Lain-lain',
 ] as const;
+const CATEGORY_FAMILY_MAP: Record<string, string[]> = {
+  'Inovasi dan Produktiviti': ['Inovasi dan produktivi'],
+};
 const SEEDED_ISSUE_CATEGORIES = Array.from(new Set([...LEGACY_ISSUE_CATEGORIES, ...OFFICIAL_ISSUE_CATEGORIES]));
 
 const upload = multer({
@@ -253,6 +254,25 @@ const normalizeCategoryLabel = (value: unknown) =>
 const findOfficialIssueCategory = (category: unknown) => {
   const normalized = normalizeCategoryLabel(category);
   return OFFICIAL_ISSUE_CATEGORIES.find((item) => normalizeCategoryLabel(item) === normalized) || null;
+};
+
+const getCanonicalCategoryLabel = (category: unknown) => {
+  const normalized = normalizeCategoryLabel(category);
+  const officialCategory = Object.keys(CATEGORY_FAMILY_MAP).find((officialLabel) => {
+    if (normalizeCategoryLabel(officialLabel) === normalized) {
+      return true;
+    }
+
+    return CATEGORY_FAMILY_MAP[officialLabel].some((alias) => normalizeCategoryLabel(alias) === normalized);
+  });
+
+  return officialCategory || String(category || '').trim();
+};
+
+const getCategoryFamilyLabels = (category: unknown) => {
+  const canonicalCategory = getCanonicalCategoryLabel(category);
+  const aliases = CATEGORY_FAMILY_MAP[canonicalCategory] || [];
+  return [canonicalCategory, ...aliases];
 };
 
 const normalizeOfficialCategoryInput = (category: unknown) => {
@@ -1680,8 +1700,9 @@ async function startServer() {
       filters.push(`m.bil_mesyuarat = $${params.length}`);
     }
     if (category) {
-      params.push(String(category));
-      filters.push(`i.category = $${params.length}`);
+      const categoryLabels = getCategoryFamilyLabels(String(category)).map((item) => normalizeCategoryLabel(item));
+      params.push(categoryLabels);
+      filters.push(`LOWER(TRIM(i.category)) = ANY($${params.length})`);
     }
 
     const normalizedStatus =
@@ -1751,8 +1772,9 @@ async function startServer() {
       filters.push(`m.bil_mesyuarat = $${params.length}`);
     }
     if (category) {
-      params.push(String(category));
-      filters.push(`i.category = $${params.length}`);
+      const categoryLabels = getCategoryFamilyLabels(String(category)).map((item) => normalizeCategoryLabel(item));
+      params.push(categoryLabels);
+      filters.push(`LOWER(TRIM(i.category)) = ANY($${params.length})`);
     }
 
     const stats = await query(`
@@ -1797,8 +1819,9 @@ async function startServer() {
       filters.push(`m.bil_mesyuarat = $${params.length}`);
     }
     if (category) {
-      params.push(String(category));
-      filters.push(`i.category = $${params.length}`);
+      const categoryLabels = getCategoryFamilyLabels(String(category)).map((item) => normalizeCategoryLabel(item));
+      params.push(categoryLabels);
+      filters.push(`LOWER(TRIM(i.category)) = ANY($${params.length})`);
     }
 
     const [issueResult, categoryResult, departmentResult] = await Promise.all([

@@ -47,7 +47,7 @@ const CATEGORY_MATCHERS = [
     ],
   },
   {
-    aliases: ['Kebajikan/Pembudayaan Nilai', 'Kebajikan'],
+    aliases: ['Kebajikan'],
     keywords: [
       'kebajikan',
       'nilai',

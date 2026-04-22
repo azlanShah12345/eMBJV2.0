@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
-import { CategoryStats, DashboardIssueFilters, Department, Meeting, PengelasanReport, User } from '../types';
+import { CategoryStats, DashboardIssueFilters, Department, getCanonicalCategoryLabel, getCategoryFamilyMembers, getGroupedCategoryOptions, Meeting, PengelasanReport, User } from '../types';
 import { Filter, Download, TrendingUp, Users, FileSpreadsheet, Lock, CheckCircle2, Trash2, FileText, Tag, Building2, Clock3, RefreshCw, Activity, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../components/Toast';
@@ -53,7 +53,7 @@ export default function Dashboard() {
     if (!normalized || normalized.toLowerCase() === 'undefined' || normalized.toLowerCase() === 'null') {
       return '';
     }
-    return normalized;
+    return getCanonicalCategoryLabel(normalized);
   };
 
   const downloadPdf = (doc: any, filename: string) => {
@@ -115,8 +115,15 @@ export default function Dashboard() {
   }, [deptId, selectedYear, bil, category]);
 
   useEffect(() => {
-    if (category && !categories.some((item) => item.name === category)) {
+    const normalizedCategory = category ? normalizeCategoryLabel(category) : '';
+    const groupedCategoryOptions = getGroupedCategoryOptions(categories);
+    if (normalizedCategory && !groupedCategoryOptions.some((item) => item.name === normalizedCategory)) {
       setCategory('');
+      return;
+    }
+
+    if (category && normalizedCategory && category !== normalizedCategory) {
+      setCategory(normalizedCategory);
     }
   }, [categories, category]);
 
@@ -278,11 +285,12 @@ export default function Dashboard() {
     if (selectedYear && String(new Date(meeting.tarikh_mesyuarat).getFullYear()) !== selectedYear) return false;
     if (bil && meeting.bil_mesyuarat !== bil) return false;
     if (category) {
+      const familyCategories = getCategoryFamilyMembers(category).map((item) => normalizeCategoryLabel(item));
       const meetingCategories = (meeting.issue_categories || '')
         .split(',')
-        .map((item) => item.trim())
+        .map((item) => normalizeCategoryLabel(item))
         .filter(Boolean);
-      if (!meetingCategories.includes(category)) return false;
+      if (!meetingCategories.some((item) => familyCategories.includes(item))) return false;
     }
     return true;
   });
@@ -301,6 +309,7 @@ export default function Dashboard() {
   const activeYearLabel = selectedYear || 'Semua Tahun';
   const activeMeetingLabel = bil || 'Semua Mesyuarat';
   const activeCategoryLabel = category || 'Semua Kategori';
+  const groupedCategoryOptions = getGroupedCategoryOptions(categories);
   const buildIssueDrilldownFilters = (overrides: {
     departmentId?: number | string;
     year?: string;
@@ -628,11 +637,12 @@ export default function Dashboard() {
   const relatedMeetings = submittedMeetings
     .filter((meeting) => {
       if (!category) return true;
+      const familyCategories = getCategoryFamilyMembers(category).map((item) => normalizeCategoryLabel(item));
       return (meeting.issue_categories || '')
         .split(',')
-        .map((item) => item.trim())
+        .map((item) => normalizeCategoryLabel(item))
         .filter(Boolean)
-        .includes(category);
+        .some((item) => familyCategories.includes(item));
     })
     .slice(0, 5);
   const dashboardCards = [
@@ -1239,7 +1249,7 @@ export default function Dashboard() {
             className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
           >
             <option value="">Semua Kategori</option>
-            {categories.filter((item) => item.name).map((item) => (
+            {groupedCategoryOptions.map((item) => (
               <option key={item.id} value={item.name}>{item.name}</option>
             ))}
           </select>
