@@ -41,17 +41,18 @@ const OFFICIAL_ISSUE_CATEGORIES = [
   'Kewangan',
   'Infrastruktur dan Fasiliti',
   'Sumber Manusia',
-  'Kebajikan/Pembudayaan Nilai',
+  'Kebajikan',
   'Inovasi dan Produktiviti',
   'Lain-lain',
 ] as const;
 const LEGACY_ISSUE_CATEGORIES = [
-  'Kewangan dan kemudahan',
   'Pentadbiran',
-  'Kebajikan',
   'Inovasi dan produktivi',
   'Lain-lain',
 ] as const;
+const CATEGORY_FAMILY_MAP: Record<string, string[]> = {
+  'Inovasi dan Produktiviti': ['Inovasi dan produktivi'],
+};
 const SEEDED_ISSUE_CATEGORIES = Array.from(new Set([...LEGACY_ISSUE_CATEGORIES, ...OFFICIAL_ISSUE_CATEGORIES]));
 
 const getRequestIp = (req: any) => {
@@ -108,6 +109,25 @@ const normalizeCategoryLabel = (value: unknown) =>
 const findOfficialIssueCategory = (category: unknown) => {
   const normalized = normalizeCategoryLabel(category);
   return OFFICIAL_ISSUE_CATEGORIES.find((item) => normalizeCategoryLabel(item) === normalized) || null;
+};
+
+const getCanonicalCategoryLabel = (category: unknown) => {
+  const normalized = normalizeCategoryLabel(category);
+  const officialCategory = Object.keys(CATEGORY_FAMILY_MAP).find((officialLabel) => {
+    if (normalizeCategoryLabel(officialLabel) === normalized) {
+      return true;
+    }
+
+    return CATEGORY_FAMILY_MAP[officialLabel].some((alias) => normalizeCategoryLabel(alias) === normalized);
+  });
+
+  return officialCategory || String(category || '').trim();
+};
+
+const getCategoryFamilyLabels = (category: unknown) => {
+  const canonicalCategory = getCanonicalCategoryLabel(category);
+  const aliases = CATEGORY_FAMILY_MAP[canonicalCategory] || [];
+  return [canonicalCategory, ...aliases];
 };
 
 const normalizeOfficialCategoryInput = (category: unknown) => {
@@ -1267,8 +1287,9 @@ async function startServer() {
       params.push(String(bil_mesyuarat));
     }
     if (category) {
-      query += ' AND i.category = ?';
-      params.push(String(category));
+      const categoryLabels = getCategoryFamilyLabels(String(category)).map((item) => normalizeCategoryLabel(item));
+      query += ` AND LOWER(TRIM(i.category)) IN (${categoryLabels.map(() => '?').join(', ')})`;
+      params.push(...categoryLabels);
     }
     if (status === 'Selesai' || status === 'Belum Selesai') {
       query += ' AND i.status = ?';
@@ -1289,7 +1310,7 @@ async function startServer() {
   }));
 
   app.get('/api/stats', authenticate, catchErrors((req: any, res: any) => {
-    const { department_id, bil_mesyuarat } = req.query;
+    const { department_id, bil_mesyuarat, year, category } = req.query;
     let query = `
       SELECT category, 
              COUNT(*) as total,
@@ -1304,9 +1325,18 @@ async function startServer() {
       query += ' AND m.department_id = ?';
       params.push(department_id);
     }
+    if (year) {
+      query += " AND CAST(strftime('%Y', m.tarikh_mesyuarat) AS INTEGER) = ?";
+      params.push(Number(year));
+    }
     if (bil_mesyuarat) {
       query += ' AND m.bil_mesyuarat = ?';
       params.push(bil_mesyuarat);
+    }
+    if (category) {
+      const categoryLabels = getCategoryFamilyLabels(String(category)).map((item) => normalizeCategoryLabel(item));
+      query += ` AND LOWER(TRIM(i.category)) IN (${categoryLabels.map(() => '?').join(', ')})`;
+      params.push(...categoryLabels);
     }
     query += ' GROUP BY category';
     
