@@ -158,7 +158,7 @@ export const OFFICIAL_ISSUE_CATEGORIES = [
   'Kewangan',
   'Infrastruktur dan Fasiliti',
   'Sumber Manusia',
-  'Kebajikan',
+  'Kebajikan/Pembudayaan Nilai',
   'Inovasi dan Produktiviti',
   'Lain-lain'
 ];
@@ -172,6 +172,7 @@ export const LEGACY_ISSUE_CATEGORIES = [
 export const CATEGORIES = OFFICIAL_ISSUE_CATEGORIES;
 
 export const CATEGORY_FAMILY_MAP: Record<string, string[]> = {
+  'Kebajikan/Pembudayaan Nilai': ['Kebajikan'],
   'Inovasi dan Produktiviti': ['Inovasi dan produktivi'],
 };
 

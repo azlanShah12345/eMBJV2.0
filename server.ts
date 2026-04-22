@@ -41,7 +41,7 @@ const OFFICIAL_ISSUE_CATEGORIES = [
   'Kewangan',
   'Infrastruktur dan Fasiliti',
   'Sumber Manusia',
-  'Kebajikan',
+  'Kebajikan/Pembudayaan Nilai',
   'Inovasi dan Produktiviti',
   'Lain-lain',
 ] as const;
@@ -51,6 +51,7 @@ const LEGACY_ISSUE_CATEGORIES = [
   'Lain-lain',
 ] as const;
 const CATEGORY_FAMILY_MAP: Record<string, string[]> = {
+  'Kebajikan/Pembudayaan Nilai': ['Kebajikan'],
   'Inovasi dan Produktiviti': ['Inovasi dan produktivi'],
 };
 const SEEDED_ISSUE_CATEGORIES = Array.from(new Set([...LEGACY_ISSUE_CATEGORIES, ...OFFICIAL_ISSUE_CATEGORIES]));
