@@ -70,7 +70,27 @@ export default function Dashboard() {
 
   const formatPengelasanTitles = (titles: string[]) => {
     if (!titles.length) return '-';
-    return titles.map((title, index) => `${index + 1}. ${title}`).join('\n');
+    return titles
+      .map((title, index) => `${index + 1}.   ${String(title || '').trim()}`)
+      .join('\n\n');
+  };
+
+  const estimateWorksheetRowHeight = (values: unknown[]) => {
+    const maxLines = values.reduce<number>((highest, value) => {
+      const normalizedValue = String(value ?? '');
+      if (!normalizedValue.trim()) {
+        return highest;
+      }
+
+      const explicitLines = normalizedValue.split('\n').length;
+      const wrappedLines = normalizedValue
+        .split('\n')
+        .reduce<number>((total, line) => total + Math.max(1, Math.ceil(line.length / 52)), 0);
+
+      return Math.max(highest, explicitLines, wrappedLines);
+    }, 1);
+
+    return Math.max(22, maxLines * 14);
   };
 
   useEffect(() => {
@@ -478,10 +498,11 @@ export default function Dashboard() {
       .sort((a, b) => a.monthIndex - b.monthIndex)
       .map((item) => ({
         ...item,
+        pending: Math.max(0, item.issues - item.selesai),
         completion: item.issues > 0 ? (item.selesai / item.issues) * 100 : 0,
       }));
   })();
-  const monthlyTrendPeak = monthlyTrend.reduce((max, item) => Math.max(max, item.reports, item.issues), 1);
+  const monthlyTrendPeak = monthlyTrend.reduce((max, item) => Math.max(max, item.reports, item.pending, item.selesai), 1);
   const unresolvedCategories = [...visibleStats]
     .filter((item) => item.belum_selesai > 0)
     .sort((a, b) => b.belum_selesai - a.belum_selesai || b.total - a.total)
@@ -533,8 +554,8 @@ export default function Dashboard() {
     .sort((a, b) => b.ageDays - a.ageDays || b.pending - a.pending || a.department_name.localeCompare(b.department_name));
   const latestMonthTrend = monthlyTrend[monthlyTrend.length - 1];
   const previousMonthTrend = monthlyTrend[monthlyTrend.length - 2];
-  const monthlyIssueDirection = latestMonthTrend && previousMonthTrend
-    ? latestMonthTrend.issues - previousMonthTrend.issues
+  const monthlyPendingDirection = latestMonthTrend && previousMonthTrend
+    ? latestMonthTrend.pending - previousMonthTrend.pending
     : 0;
   const monthlyCompletionDirection = latestMonthTrend && previousMonthTrend
     ? latestMonthTrend.completion - previousMonthTrend.completion
@@ -568,14 +589,16 @@ export default function Dashboard() {
       accent: 'blue',
     },
     {
-      label: 'Arah Trend Semasa',
+      label: 'Trend Tertunggak Semasa',
       value: latestMonthTrend?.label || 'Tiada data',
       note: latestMonthTrend && previousMonthTrend
-        ? monthlyIssueDirection > 0
-          ? `Isu meningkat ${monthlyIssueDirection} berbanding ${previousMonthTrend.label}`
-          : monthlyIssueDirection < 0
-            ? `Isu menurun ${Math.abs(monthlyIssueDirection)} berbanding ${previousMonthTrend.label}`
-            : `Jumlah isu kekal stabil berbanding ${previousMonthTrend.label}`
+        ? monthlyPendingDirection > 0
+          ? `Isu belum selesai meningkat ${monthlyPendingDirection} berbanding ${previousMonthTrend.label}`
+          : monthlyPendingDirection < 0
+            ? `Isu belum selesai menurun ${Math.abs(monthlyPendingDirection)} berbanding ${previousMonthTrend.label}`
+            : monthlyCompletionDirection >= 0
+              ? `Isu tertunggak stabil dengan kadar selesai yang bertambah baik`
+              : `Isu tertunggak stabil tetapi kadar selesai menurun`
         : 'Perlu sekurang-kurangnya dua bulan aktif untuk perbandingan',
       icon: TrendingUp,
       accent: 'emerald',
@@ -930,17 +953,27 @@ export default function Dashboard() {
         ],
         theme: 'grid',
         headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], halign: 'center', valign: 'middle', lineColor: [203, 213, 225], lineWidth: 0.2 },
-        styles: { fontSize: 8, cellPadding: 2, overflow: 'linebreak', valign: 'top', lineColor: [203, 213, 225], lineWidth: 0.1, textColor: [30, 41, 59] },
+        styles: {
+          fontSize: 8,
+          cellPadding: { top: 2.8, right: 2.8, bottom: 2.8, left: 2.8 },
+          overflow: 'linebreak',
+          valign: 'top',
+          halign: 'justify',
+          lineColor: [203, 213, 225],
+          lineWidth: 0.1,
+          textColor: [30, 41, 59],
+          minCellHeight: 8,
+        },
         alternateRowStyles: { fillColor: [248, 250, 252] },
         columnStyles: {
           0: { cellWidth: 12, halign: 'center' },
-          1: { cellWidth: 34, fontStyle: 'bold' },
+          1: { cellWidth: 34, fontStyle: 'bold', halign: 'justify' },
           2: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
           3: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
-          4: { cellWidth: 48 },
+          4: { cellWidth: 48, halign: 'justify' },
           5: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
           6: { cellWidth: 22, halign: 'center', fontStyle: 'bold' },
-          7: { cellWidth: 56 },
+          7: { cellWidth: 56, halign: 'justify' },
         },
         didParseCell: (hookData) => {
           if (hookData.section === 'head' && hookData.row.index === 1) {
@@ -956,6 +989,12 @@ export default function Dashboard() {
 
           if (hookData.section === 'body') {
             const isTotalRow = hookData.row.index === report.rows.length;
+            if ([0, 2, 3, 5, 6].includes(hookData.column.index)) {
+              hookData.cell.styles.halign = 'center';
+            }
+            if ([1, 4, 7].includes(hookData.column.index)) {
+              hookData.cell.styles.halign = 'justify';
+            }
             if (isTotalRow) {
               hookData.cell.styles.fillColor = [254, 240, 138];
               hookData.cell.styles.textColor = [113, 63, 18];
@@ -984,31 +1023,35 @@ export default function Dashboard() {
     const report = await fetchPengelasanReport();
     if (!report) return;
 
-    const worksheet = XLSX.utils.aoa_to_sheet([
+    const pengelasanRows = report.rows.map((row, index) => ([
+      index + 1,
+      row.category,
+      row.previous_selesai_titles.length,
+      row.previous_belum_titles.length,
+      formatPengelasanTitles([
+        ...row.previous_selesai_titles.map((title) => `[Selesai] ${title}`),
+        ...row.previous_belum_titles.map((title) => `[Belum selesai] ${title}`),
+      ]),
+      row.new_selesai_titles.length,
+      row.new_belum_titles.length,
+      formatPengelasanTitles([
+        ...row.new_selesai_titles.map((title) => `[Selesai] ${title}`),
+        ...row.new_belum_titles.map((title) => `[Belum selesai] ${title}`),
+      ]),
+    ]));
+
+    const worksheetData = [
       ['JADUAL PENGELASAN DAN PENYELESAIAN ISU'],
       [`Jabatan: ${report.department_name}`],
       [`Minit Mesyuarat MBJ: ${report.meeting_label}`],
       [`Tahun: ${report.report_year}`],
       [],
       ['Bil.', 'Kategori', 'Perkara Berbangkit - Selesai', 'Perkara Berbangkit - Belum Selesai', 'Perkara Berbangkit - Tajuk Isu / Catatan', 'Isu Baharu - Selesai', 'Isu Baharu - Belum Selesai', 'Isu Baharu - Tajuk Isu / Catatan'],
-      ...report.rows.map((row, index) => [
-        index + 1,
-        row.category,
-        row.previous_selesai_titles.length,
-        row.previous_belum_titles.length,
-        [
-          ...row.previous_selesai_titles.map((title) => `[Selesai] ${title}`),
-          ...row.previous_belum_titles.map((title) => `[Belum selesai] ${title}`),
-        ].join('\n'),
-        row.new_selesai_titles.length,
-        row.new_belum_titles.length,
-        [
-          ...row.new_selesai_titles.map((title) => `[Selesai] ${title}`),
-          ...row.new_belum_titles.map((title) => `[Belum selesai] ${title}`),
-        ].join('\n'),
-      ]),
+      ...pengelasanRows,
       ['', 'Jumlah isu', report.totals.previous_selesai, report.totals.previous_belum, '', report.totals.new_selesai, report.totals.new_belum, report.totals.overall],
-    ]);
+    ];
+
+    const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
     worksheet['!cols'] = [
       { wch: 8 },
       { wch: 24 },
@@ -1026,8 +1069,32 @@ export default function Dashboard() {
       { hpt: 18 },
       { hpt: 10 },
       { hpt: 32 },
+      ...pengelasanRows.map((row) => ({ hpt: estimateWorksheetRowHeight(row) })),
+      { hpt: 22 },
     ];
     worksheet['!autofilter'] = { ref: 'A6:H6' };
+
+    const worksheetRange = XLSX.utils.decode_range(worksheet['!ref'] || 'A1:H1');
+    for (let rowIndex = worksheetRange.s.r; rowIndex <= worksheetRange.e.r; rowIndex += 1) {
+      for (let colIndex = worksheetRange.s.c; colIndex <= worksheetRange.e.c; colIndex += 1) {
+        const cellAddress = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+        const cell = worksheet[cellAddress];
+        if (!cell) continue;
+
+        const isHeaderRow = rowIndex === 5;
+        const isCountColumn = [0, 2, 3, 5, 6].includes(colIndex);
+        const isTextColumn = [1, 4, 7].includes(colIndex);
+
+        cell.s = {
+          alignment: {
+            vertical: 'top',
+            horizontal: isHeaderRow || isCountColumn ? 'center' : isTextColumn ? 'justify' : 'left',
+            wrapText: true,
+          },
+        };
+      }
+    }
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Jadual Pengelasan');
     XLSX.writeFile(workbook, 'Jadual-Pengelasan.xlsx');
@@ -2011,8 +2078,8 @@ export default function Dashboard() {
         <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-lg font-bold text-slate-900">Trend Penghantaran Bulanan</h3>
-              <p className="mt-1 text-sm text-slate-500">Jumlah laporan dan isu yang dihantar mengikut bulan mesyuarat.</p>
+              <h3 className="text-lg font-bold text-slate-900">Trend Beban dan Penyelesaian Bulanan</h3>
+              <p className="mt-1 text-sm text-slate-500">Perbandingan laporan, isu belum selesai, dan isu selesai mengikut bulan mesyuarat.</p>
             </div>
             <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.24em] text-slate-500">
               {monthlyTrend.length} bulan aktif
@@ -2029,7 +2096,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="font-bold text-slate-800">{item.label}</p>
-                      <p className="mt-1 text-xs text-slate-500">{item.reports} laporan | {item.issues} isu</p>
+                      <p className="mt-1 text-xs text-slate-500">{item.reports} laporan | {item.pending} tertunggak | {item.selesai} selesai</p>
                     </div>
                     <span className="rounded-full bg-white px-3 py-1 text-sm font-bold text-slate-700 ring-1 ring-slate-200">
                       {item.completion.toFixed(1)}%
@@ -2047,11 +2114,20 @@ export default function Dashboard() {
                     </div>
                     <div>
                       <div className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-                        <span>Isu</span>
-                        <span>{item.issues}</span>
+                        <span>Belum Selesai</span>
+                        <span>{item.pending}</span>
                       </div>
                       <div className="h-2.5 overflow-hidden rounded-full bg-white">
-                        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(item.issues / monthlyTrendPeak) * 100}%` }} />
+                        <div className="h-full rounded-full bg-amber-500" style={{ width: `${(item.pending / monthlyTrendPeak) * 100}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="mb-1 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                        <span>Selesai</span>
+                        <span>{item.selesai}</span>
+                      </div>
+                      <div className="h-2.5 overflow-hidden rounded-full bg-white">
+                        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(item.selesai / monthlyTrendPeak) * 100}%` }} />
                       </div>
                     </div>
                   </div>
