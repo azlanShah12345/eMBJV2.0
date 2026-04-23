@@ -387,6 +387,14 @@ const normalizeResponsibleOfficer = (responsibleOfficer: unknown) => {
   return normalized || null;
 };
 
+const normalizeUserRole = (value: unknown) => {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized !== 'ADMIN' && normalized !== 'USER') {
+    throw new Error('Peranan pengguna tidak sah');
+  }
+  return normalized as 'ADMIN' | 'USER';
+};
+
 const parseMeetingLabelList = (value: unknown) =>
   String(value || '')
     .split(',')
@@ -1052,12 +1060,41 @@ async function startServer() {
   }));
 
   app.post('/api/users', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
-    const { username, password, role, department_id } = req.body;
+    const username = String(req.body.username || '').trim();
+    const password = String(req.body.password || '');
+    const role = normalizeUserRole(req.body.role);
+    const departmentIdValue = req.body.department_id;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: 'Nama pengguna dan kata laluan diperlukan' });
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Kata laluan mesti sekurang-kurangnya 6 aksara' });
+    }
+
+    let normalizedDepartmentId: number | null = null;
+    if (role === 'USER') {
+      const departmentId = Number(departmentIdValue);
+      if (!departmentId || Number.isNaN(departmentId)) {
+        return res.status(400).json({ error: 'Jabatan diperlukan untuk akaun pengguna jabatan' });
+      }
+
+      const departmentResult = await query(
+        'SELECT id FROM departments WHERE id = $1 AND name <> $2 LIMIT 1',
+        [departmentId, 'HQ']
+      );
+      if (departmentResult.rowCount === 0) {
+        return res.status(400).json({ error: 'Jabatan yang dipilih tidak sah untuk akaun pengguna jabatan' });
+      }
+
+      normalizedDepartmentId = departmentId;
+    }
+
     const hash = bcrypt.hashSync(password, 10);
     try {
       const result = await query(
         'INSERT INTO users (username, password, role, department_id, status, requested_at) VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING id',
-        [username, hash, role, department_id || null, 'APPROVED']
+        [username, hash, role, normalizedDepartmentId, 'APPROVED']
       );
       await writeAuditLog(req, {
         actor: req.user,
@@ -1065,7 +1102,7 @@ async function startServer() {
         entityType: 'USER',
         entityId: result.rows[0].id,
         targetLabel: username,
-        details: { role, department_id: department_id || null, status: 'APPROVED' },
+        details: { role, department_id: normalizedDepartmentId, status: 'APPROVED' },
       });
       res.json({ id: result.rows[0].id });
     } catch (error: any) {

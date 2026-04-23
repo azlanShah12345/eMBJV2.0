@@ -82,6 +82,12 @@ export default function Settings() {
     }
   }, [activeTab, missingOfficialCategories, newCat]);
 
+  useEffect(() => {
+    if (newUser.role === 'ADMIN' && newUser.department_id !== '') {
+      setNewUser((current) => ({ ...current, department_id: '' }));
+    }
+  }, [newUser.role, newUser.department_id]);
+
   const fetchData = async (tab: 'users' | 'departments' | 'categories' | 'announcements' = activeTab) => {
     setLoading(true);
     try {
@@ -122,7 +128,7 @@ export default function Settings() {
       setIsCreating(true);
       await api.createUser({
         ...newUser,
-        department_id: newUser.department_id ? Number(newUser.department_id) : null
+        department_id: newUser.role === 'USER' && newUser.department_id ? Number(newUser.department_id) : null
       });
       setNewUser({ username: '', password: '', role: 'USER', department_id: '' });
       showToast('Pengguna berjaya diwujudkan');
@@ -374,12 +380,21 @@ export default function Settings() {
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Peranan</label>
                   <select 
                     value={newUser.role}
-                    onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                    onChange={(e) => setNewUser({
+                      ...newUser,
+                      role: e.target.value,
+                      department_id: e.target.value === 'ADMIN' ? '' : newUser.department_id,
+                    })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="USER">Pengguna (Jabatan)</option>
                     <option value="ADMIN">Pentadbir (HQ)</option>
                   </select>
+                </div>
+                <div className={`rounded-xl border p-3 text-sm leading-6 ${newUser.role === 'ADMIN' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+                  {newUser.role === 'ADMIN'
+                    ? 'Akaun pentadbir HQ tidak memerlukan jabatan. Sistem akan simpan akaun ini di bawah Pentadbiran HQ.'
+                    : 'Akaun pengguna jabatan mesti dipautkan kepada satu jabatan yang sah.'}
                 </div>
                 {newUser.role === 'USER' && (
                   <div>
@@ -391,7 +406,7 @@ export default function Settings() {
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
                     >
                       <option value="">Pilih Jabatan</option>
-                      {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      {departments.filter((department) => department.name !== 'HQ').map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
                   </div>
                 )}
@@ -620,7 +635,9 @@ export default function Settings() {
                         <div className="text-xs text-slate-500">{u.role} | {u.status === 'REJECTED' ? 'Ditolak' : 'Diluluskan'}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-sm text-slate-600">{u.department_name || 'HQ / Pentadbir'}</span>
+                        <span className="text-sm text-slate-600">
+                          {u.role === 'ADMIN' ? 'Pentadbiran HQ' : (u.department_name || 'Jabatan tidak ditetapkan')}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         {u.status === 'REJECTED' && (
