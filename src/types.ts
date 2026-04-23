@@ -74,7 +74,14 @@ export interface SimilarIssue {
   is_from_previous: number;
   updated_at: string;
   similarity_score: number;
+  base_similarity_score?: number;
+  match_reason: string;
+  shared_keywords: string[];
   is_same_meeting: boolean;
+  feedback_match_count: number;
+  feedback_no_match_count: number;
+  dominant_feedback_type: 'MATCH' | 'NO_MATCH' | null;
+  current_user_feedback_type: 'MATCH' | 'NO_MATCH' | null;
 }
 
 export interface IssueCategorySuggestion {
