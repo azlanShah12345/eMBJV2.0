@@ -28,6 +28,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   const [newMessage, setNewMessage] = useState('');
   const [similarIssues, setSimilarIssues] = useState<SimilarIssue[]>([]);
   const [isCheckingSimilarIssues, setIsCheckingSimilarIssues] = useState(false);
+  const [submittingSimilarIssueFeedbackKey, setSubmittingSimilarIssueFeedbackKey] = useState<string | null>(null);
   const [issueCategorySuggestion, setIssueCategorySuggestion] = useState<IssueCategorySuggestion | null>(null);
   const [isLoadingIssueCategorySuggestion, setIsLoadingIssueCategorySuggestion] = useState(false);
   const clampPercentage = (value: number) => Math.min(100, Math.max(0, Math.round(value)));
@@ -72,6 +73,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     if (!isModalOpen || !id) {
       setSimilarIssues([]);
       setIsCheckingSimilarIssues(false);
+      setSubmittingSimilarIssueFeedbackKey(null);
       return undefined;
     }
 
@@ -180,6 +182,26 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     }
   };
 
+  const getSimilarIssueFeedbackKey = (issue: SimilarIssue) => `${issue.id}-${issue.meeting_id}`;
+
+  const refreshSimilarIssues = async (issueTitle: string) => {
+    if (!id || issueTitle.trim().length < 4) {
+      setSimilarIssues([]);
+      return;
+    }
+
+    setIsCheckingSimilarIssues(true);
+    try {
+      const data = await api.getSimilarIssues(Number(id), issueTitle.trim());
+      setSimilarIssues(data);
+    } catch (error) {
+      console.error(error);
+      setSimilarIssues([]);
+    } finally {
+      setIsCheckingSimilarIssues(false);
+    }
+  };
+
   const handleAddIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -193,6 +215,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
         status: 'Belum Selesai'
       });
       setSimilarIssues([]);
+      setSubmittingSimilarIssueFeedbackKey(null);
       setIssueCategorySuggestion(null);
       showToast('Isu berjaya ditambah');
       fetchData();
@@ -200,6 +223,35 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
       showToast('Gagal menambah isu', 'error');
     } finally {
       setIsAddingIssue(false);
+    }
+  };
+
+  const handleSimilarIssueFeedback = async (issue: SimilarIssue, feedbackType: 'MATCH' | 'NO_MATCH') => {
+    if (!id) {
+      showToast('ID mesyuarat tidak sah', 'error');
+      return;
+    }
+
+    const trimmedTitle = newIssue.title.trim();
+    if (trimmedTitle.length < 4) {
+      showToast('Tajuk isu terlalu pendek untuk pembelajaran padanan', 'error');
+      return;
+    }
+
+    const feedbackKey = getSimilarIssueFeedbackKey(issue);
+    try {
+      setSubmittingSimilarIssueFeedbackKey(feedbackKey);
+      const response = await api.submitSimilarIssueFeedback(Number(id), {
+        title: trimmedTitle,
+        compared_issue_id: issue.id,
+        feedback_type: feedbackType,
+      });
+      showToast(response.message);
+      await refreshSimilarIssues(trimmedTitle);
+    } catch (error: any) {
+      showToast(error.message || 'Gagal menyimpan maklum balas padanan', 'error');
+    } finally {
+      setSubmittingSimilarIssueFeedbackKey(null);
     }
   };
 
@@ -966,6 +1018,32 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                                 <p className="mt-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
                                   Padanan {clampPercentage(issue.similarity_score)}% {issue.is_same_meeting ? '| Mesyuarat semasa' : `| ${issue.meeting_label}`}
                                 </p>
+                                <p className="mt-2 text-xs text-slate-600">
+                                  Sebab padanan: {issue.match_reason}
+                                </p>
+                                {issue.shared_keywords.length > 0 && (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    Kata sepadan: {issue.shared_keywords.join(', ')}.
+                                  </p>
+                                )}
+                                {(issue.feedback_match_count > 0 || issue.feedback_no_match_count > 0) && (
+                                  <p className="mt-2 text-xs text-slate-500">
+                                    Pembelajaran tempatan:
+                                    {issue.feedback_match_count > 0 ? ` ${issue.feedback_match_count} padanan disahkan` : ''}
+                                    {issue.feedback_match_count > 0 && issue.feedback_no_match_count > 0 ? ',' : ''}
+                                    {issue.feedback_no_match_count > 0 ? ` ${issue.feedback_no_match_count} bukan padanan` : ''}
+                                    {issue.dominant_feedback_type === 'MATCH'
+                                      ? '. Corak semasa lebih cenderung sebagai padanan.'
+                                      : issue.dominant_feedback_type === 'NO_MATCH'
+                                        ? '. Corak semasa lebih cenderung sebagai bukan padanan.'
+                                        : ''}
+                                  </p>
+                                )}
+                                {typeof issue.base_similarity_score === 'number' && issue.base_similarity_score !== issue.similarity_score && (
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    Skor asas {clampPercentage(issue.base_similarity_score)}%, kemudian dilaraskan oleh pembelajaran tempatan.
+                                  </p>
+                                )}
                               </div>
                               <div className="flex flex-wrap gap-2 text-xs font-bold">
                                 <span className="rounded-full bg-slate-100 px-2.5 py-1 text-slate-700">{issue.category}</span>
@@ -978,6 +1056,40 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                               {issue.department_name} | {issue.meeting_label} | {new Date(issue.meeting_date).toLocaleDateString('ms-MY')}
                               {issue.is_from_previous ? ' | Isu terdahulu' : ''}
                             </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSimilarIssueFeedback(issue, 'MATCH')}
+                                disabled={submittingSimilarIssueFeedbackKey === getSimilarIssueFeedbackKey(issue)}
+                                className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                                  issue.current_user_feedback_type === 'MATCH'
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                } disabled:cursor-not-allowed disabled:opacity-60`}
+                              >
+                                {submittingSimilarIssueFeedbackKey === getSimilarIssueFeedbackKey(issue)
+                                  ? 'Menyimpan...'
+                                  : issue.current_user_feedback_type === 'MATCH'
+                                    ? 'Padanan Disahkan'
+                                    : 'Tanda Sebagai Padanan'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleSimilarIssueFeedback(issue, 'NO_MATCH')}
+                                disabled={submittingSimilarIssueFeedbackKey === getSimilarIssueFeedbackKey(issue)}
+                                className={`rounded-full px-3 py-1.5 text-xs font-bold transition-colors ${
+                                  issue.current_user_feedback_type === 'NO_MATCH'
+                                    ? 'bg-slate-700 text-white'
+                                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                                } disabled:cursor-not-allowed disabled:opacity-60`}
+                              >
+                                {submittingSimilarIssueFeedbackKey === getSimilarIssueFeedbackKey(issue)
+                                  ? 'Menyimpan...'
+                                  : issue.current_user_feedback_type === 'NO_MATCH'
+                                    ? 'Bukan Padanan Disimpan'
+                                    : 'Tanda Bukan Padanan'}
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
