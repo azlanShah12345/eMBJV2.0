@@ -201,13 +201,29 @@ export const api = {
     return handleResponse(res);
   },
 
-  async getLastYearIncompleteReports(): Promise<LastYearIncompleteReportItem[]> {
-    const res = await fetch(`${API_BASE}/admin/report-completeness/last-year`, { headers: getHeaders() });
+  async getLastYearIncompleteReports(year?: number): Promise<LastYearIncompleteReportItem[]> {
+    const query = new URLSearchParams(
+      Object.entries({ year }).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      }, {})
+    ).toString();
+    const res = await fetch(`${API_BASE}/admin/report-completeness/last-year${query ? `?${query}` : ''}`, { headers: getHeaders() });
     return handleResponse(res);
   },
 
-  async sendLastYearReportReminder(departmentId: number) {
-    const res = await fetch(`${API_BASE}/admin/report-completeness/last-year/${departmentId}/remind`, {
+  async sendLastYearReportReminder(departmentId: number, year?: number) {
+    const query = new URLSearchParams(
+      Object.entries({ year }).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      }, {})
+    ).toString();
+    const res = await fetch(`${API_BASE}/admin/report-completeness/last-year/${departmentId}/remind${query ? `?${query}` : ''}`, {
       method: 'POST',
       headers: getHeaders(),
     });

@@ -10,6 +10,7 @@ import MeetingDetails from './pages/MeetingDetails';
 import Settings from './pages/Settings';
 import Account from './pages/Account';
 import AuditTrail from './pages/AuditTrail';
+import ReportReminders from './pages/ReportReminders';
 import Layout from './components/Layout';
 import { api } from './services/api';
 import { SystemStatus, User } from './types';
@@ -118,6 +119,7 @@ function App() {
             />
             <Route path="/dashboard/issues" element={<DashboardIssueList user={user!} />} />
             <Route path="/account" element={<Account user={user!} />} />
+            <Route path="/report-reminders" element={user?.role === 'ADMIN' ? <ReportReminders /> : <Navigate to="/" />} />
             <Route path="/settings" element={user?.role === 'ADMIN' ? <Settings /> : <Navigate to="/" />} />
             <Route path="/audit-trail" element={user?.role === 'ADMIN' ? <AuditTrail /> : <Navigate to="/" />} />
             <Route path="/meeting/:id" element={<MeetingDetails user={user!} />} />

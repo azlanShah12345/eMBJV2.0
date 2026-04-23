@@ -259,6 +259,20 @@ const getCurrentMalaysiaYear = () =>
 
 const getLastCompletedReportYear = () => getCurrentMalaysiaYear() - 1;
 
+const normalizeReportReminderYear = (value: unknown) => {
+  if (value === undefined || value === null || String(value).trim() === '') {
+    return getLastCompletedReportYear();
+  }
+
+  const parsedYear = Number(value);
+  const currentYear = getCurrentMalaysiaYear();
+  if (!Number.isInteger(parsedYear) || parsedYear < 2000 || parsedYear > currentYear) {
+    throw new Error('Tahun laporan tidak sah');
+  }
+
+  return parsedYear;
+};
+
 const normalizeCategoryLabel = (value: unknown) =>
   String(value || '')
     .trim()
@@ -2056,14 +2070,14 @@ async function startServer() {
     res.json({ success: true });
   }));
 
-  app.get('/api/admin/report-completeness/last-year', authenticate, isAdmin, asyncHandler(async (_req: any, res: any) => {
-    const reportYear = getLastCompletedReportYear();
+  app.get('/api/admin/report-completeness/last-year', authenticate, isAdmin, asyncHandler(async (req: any, res: any) => {
+    const reportYear = normalizeReportReminderYear(req.query.year);
     const rows = await getIncompleteDepartmentReportsForYear(reportYear);
     res.json(rows);
   }));
 
   app.post('/api/admin/report-completeness/last-year/:departmentId/remind', authenticate, isAdmin, asyncHandler(async (req: any, res: any) => {
-    const reportYear = getLastCompletedReportYear();
+    const reportYear = normalizeReportReminderYear(req.query.year);
     const departmentId = Number(req.params.departmentId);
     if (!Number.isFinite(departmentId) || departmentId <= 0) {
       return res.status(400).json({ error: 'Jabatan sasaran tidak sah' });
@@ -2072,7 +2086,7 @@ async function startServer() {
     const incompleteRows = await getIncompleteDepartmentReportsForYear(reportYear);
     const targetDepartment = incompleteRows.find((item) => item.department_id === departmentId);
     if (!targetDepartment) {
-      return res.status(404).json({ error: 'Jabatan tidak ditemui atau laporan tahun lepas telah lengkap' });
+      return res.status(404).json({ error: `Jabatan tidak ditemui atau laporan tahun ${reportYear} telah lengkap` });
     }
     if (targetDepartment.active_user_count <= 0) {
       return res.status(400).json({ error: 'Tiada pengguna jabatan yang aktif untuk menerima peringatan ini' });

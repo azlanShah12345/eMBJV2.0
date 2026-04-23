@@ -187,6 +187,23 @@ export default function Layout({ user, onLogout }: LayoutProps) {
             )}
           </NavLink>
           {user.role === 'ADMIN' && (
+            <NavLink to="/report-reminders" className={navLinkClassName}>
+              {({ isActive }) => (
+                <>
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-white/10 text-slate-100 group-hover:bg-white/15'}`}>
+                    <Clock3 size={20} />
+                  </div>
+                  {isSidebarOpen && (
+                    <div className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold">Peringatan Pelaporan</span>
+                      <span className={`block text-xs ${isActive ? 'text-slate-500' : 'text-slate-300/80'}`}>Laporan tahun lepas yang belum lengkap</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </NavLink>
+          )}
+          {user.role === 'ADMIN' && (
             <NavLink to="/audit-trail" className={navLinkClassName}>
               {({ isActive }) => (
                 <>
