@@ -16,6 +16,7 @@ export default function DashboardIssueList({ user }: DashboardIssueListProps) {
     category: searchParams.get('category') || undefined,
     keyword: searchParams.get('keyword') || undefined,
     status: (searchParams.get('status') as DashboardIssueFilters['status']) || undefined,
+    issue_age_bucket: (searchParams.get('issue_age_bucket') as DashboardIssueFilters['issue_age_bucket']) || undefined,
   };
 
   const handleFiltersChange = (filters: DashboardIssueFilters) => {
@@ -26,6 +27,7 @@ export default function DashboardIssueList({ user }: DashboardIssueListProps) {
     if (filters.category) nextParams.set('category', filters.category);
     if (filters.keyword) nextParams.set('keyword', filters.keyword);
     if (filters.status) nextParams.set('status', filters.status);
+    if (filters.issue_age_bucket) nextParams.set('issue_age_bucket', filters.issue_age_bucket);
     setSearchParams(nextParams, { replace: true });
   };
 

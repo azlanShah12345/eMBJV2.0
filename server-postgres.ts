@@ -82,6 +82,7 @@ const CATEGORY_FAMILY_MAP: Record<string, string[]> = {
   'Inovasi dan Produktiviti': ['Inovasi dan produktivi'],
 };
 const SEEDED_ISSUE_CATEGORIES = Array.from(new Set([...LEGACY_ISSUE_CATEGORIES, ...OFFICIAL_ISSUE_CATEGORIES]));
+const REQUIRED_MEETING_LABELS = ['Bil 1', 'Bil 2', 'Bil 3'] as const;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -253,6 +254,11 @@ const getSystemStatusPayload = () => ({
   maintenance_started_at: MAINTENANCE_STARTED_AT,
 });
 
+const getCurrentMalaysiaYear = () =>
+  Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kuala_Lumpur', year: 'numeric' }).format(new Date()));
+
+const getLastCompletedReportYear = () => getCurrentMalaysiaYear() - 1;
+
 const normalizeCategoryLabel = (value: unknown) =>
   String(value || '')
     .trim()
@@ -343,9 +349,94 @@ const normalizeIssueTitle = (title: unknown) => {
 const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) =>
   calculateIssueDuplicateSimilarity(String(leftTitle || ''), String(rightTitle || ''));
 
+const normalizeAnnouncementTitle = (title: unknown) => {
+  const normalized = String(title || '').trim();
+  if (!normalized) {
+    throw new Error('Tajuk announcement diperlukan');
+  }
+  if (normalized.length > 160) {
+    throw new Error('Tajuk announcement terlalu panjang');
+  }
+  return normalized;
+};
+
+const normalizeAnnouncementMessage = (message: unknown) => {
+  const normalized = String(message || '').trim();
+  if (!normalized) {
+    throw new Error('Mesej announcement diperlukan');
+  }
+  return normalized;
+};
+
 const normalizeResponsibleOfficer = (responsibleOfficer: unknown) => {
   const normalized = String(responsibleOfficer || '').trim();
   return normalized || null;
+};
+
+const parseMeetingLabelList = (value: unknown) =>
+  String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const getIncompleteDepartmentReportsForYear = async (reportYear: number) => {
+  const result = await query<{
+    department_id: number;
+    department_name: string;
+    submitted_labels: string | null;
+    active_user_count: string;
+    latest_reminder_at: string | null;
+  }>(
+    `
+    SELECT
+      d.id AS department_id,
+      d.name AS department_name,
+      STRING_AGG(DISTINCT m.bil_mesyuarat, ',' ORDER BY m.bil_mesyuarat) AS submitted_labels,
+      COUNT(DISTINCT u.id)::text AS active_user_count,
+      latest_reminder.created_at AS latest_reminder_at
+    FROM departments d
+    LEFT JOIN meetings m
+      ON m.department_id = d.id
+      AND m.is_locked = 1
+      AND EXTRACT(YEAR FROM m.tarikh_mesyuarat) = $1
+      AND m.bil_mesyuarat = ANY($2::text[])
+    LEFT JOIN users u
+      ON u.department_id = d.id
+      AND u.role = 'USER'
+      AND u.status = 'APPROVED'
+    LEFT JOIN LATERAL (
+      SELECT created_at
+      FROM report_submission_reminders r
+      WHERE r.department_id = d.id
+        AND r.report_year = $1
+        AND r.is_active = 1
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT 1
+    ) latest_reminder ON TRUE
+    WHERE d.name <> 'HQ'
+    GROUP BY d.id, d.name, latest_reminder.created_at
+    ORDER BY d.name ASC
+    `,
+    [reportYear, REQUIRED_MEETING_LABELS]
+  );
+
+  return result.rows
+    .map((row) => {
+      const submittedLabels = parseMeetingLabelList(row.submitted_labels);
+      const missingLabels = REQUIRED_MEETING_LABELS.filter((label) => !submittedLabels.includes(label));
+
+      return {
+        department_id: Number(row.department_id),
+        department_name: row.department_name,
+        report_year: reportYear,
+        submitted_labels: submittedLabels,
+        missing_labels: missingLabels,
+        submitted_count: submittedLabels.length,
+        active_user_count: Number(row.active_user_count || 0),
+        latest_reminder_at: row.latest_reminder_at || null,
+      };
+    })
+    .filter((item) => item.missing_labels.length > 0);
 };
 
 const writeAuditLog = async (
@@ -498,6 +589,41 @@ const bootstrapDatabase = async () => {
       PRIMARY KEY (user_id, meeting_id)
     );
 
+    CREATE TABLE IF NOT EXISTS announcements (
+      id SERIAL PRIMARY KEY,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS announcement_reads (
+      announcement_id INTEGER NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (announcement_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS report_submission_reminders (
+      id SERIAL PRIMARY KEY,
+      department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
+      report_year INTEGER NOT NULL,
+      missing_meeting_labels TEXT NOT NULL,
+      title TEXT NOT NULL,
+      message TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS report_submission_reminder_reads (
+      reminder_id INTEGER NOT NULL REFERENCES report_submission_reminders(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      read_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (reminder_id, user_id)
+    );
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY,
       actor_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -541,8 +667,19 @@ const bootstrapDatabase = async () => {
     ALTER TABLE issues ADD COLUMN IF NOT EXISTS is_from_previous INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE issues ADD COLUMN IF NOT EXISTS responsible_officer TEXT;
     ALTER TABLE issues ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE announcements ADD COLUMN IF NOT EXISTS is_active INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE announcements ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE announcements ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE report_submission_reminders ADD COLUMN IF NOT EXISTS missing_meeting_labels TEXT;
+    ALTER TABLE report_submission_reminders ADD COLUMN IF NOT EXISTS title TEXT;
+    ALTER TABLE report_submission_reminders ADD COLUMN IF NOT EXISTS message TEXT;
+    ALTER TABLE report_submission_reminders ADD COLUMN IF NOT EXISTS is_active INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE report_submission_reminders ADD COLUMN IF NOT EXISTS created_by INTEGER REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE report_submission_reminders ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     ALTER TABLE meeting_messages ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     ALTER TABLE meeting_message_reads ADD COLUMN IF NOT EXISTS last_read_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE announcement_reads ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE report_submission_reminder_reads ADD COLUMN IF NOT EXISTS read_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS actor_department_name TEXT;
     ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS entity_id TEXT;
     ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS target_label TEXT;
@@ -550,12 +687,41 @@ const bootstrapDatabase = async () => {
     ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS ip_address TEXT;
     ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS user_agent TEXT;
     ALTER TABLE audit_logs ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+    ALTER TABLE issue_similarity_feedback ADD COLUMN IF NOT EXISTS actor_department_id INTEGER REFERENCES departments(id) ON DELETE SET NULL;
+    ALTER TABLE issue_similarity_feedback ADD COLUMN IF NOT EXISTS input_title TEXT;
+    ALTER TABLE issue_similarity_feedback ADD COLUMN IF NOT EXISTS normalized_input_title TEXT;
+    ALTER TABLE issue_similarity_feedback ADD COLUMN IF NOT EXISTS feedback_type TEXT;
+    ALTER TABLE issue_similarity_feedback ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+
+  await query(`
+    UPDATE issue_similarity_feedback
+    SET normalized_input_title = LOWER(TRIM(COALESCE(input_title, '')))
+    WHERE normalized_input_title IS NULL OR TRIM(normalized_input_title) = '';
+  `);
+
+  await query(`
+    DELETE FROM issue_similarity_feedback existing
+    USING issue_similarity_feedback duplicate
+    WHERE existing.id < duplicate.id
+      AND existing.actor_user_id = duplicate.actor_user_id
+      AND existing.compared_issue_id = duplicate.compared_issue_id
+      AND COALESCE(NULLIF(TRIM(existing.normalized_input_title), ''), LOWER(TRIM(COALESCE(existing.input_title, '')))) =
+          COALESCE(NULLIF(TRIM(duplicate.normalized_input_title), ''), LOWER(TRIM(COALESCE(duplicate.input_title, ''))));
   `);
 
   await query(`
     CREATE INDEX IF NOT EXISTS idx_issue_similarity_feedback_issue ON issue_similarity_feedback (compared_issue_id);
     CREATE INDEX IF NOT EXISTS idx_issue_similarity_feedback_meeting ON issue_similarity_feedback (source_meeting_id);
     CREATE INDEX IF NOT EXISTS idx_issue_similarity_feedback_actor ON issue_similarity_feedback (actor_user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_issue_similarity_feedback_actor_issue_title
+      ON issue_similarity_feedback (actor_user_id, compared_issue_id, normalized_input_title);
+    CREATE INDEX IF NOT EXISTS idx_announcements_active_created ON announcements (is_active, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_announcement_reads_user ON announcement_reads (user_id, read_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_report_submission_reminders_department_year
+      ON report_submission_reminders (department_id, report_year, is_active, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_report_submission_reminder_reads_user
+      ON report_submission_reminder_reads (user_id, read_at DESC);
   `);
 
   const defaultDepartments = ['HQ', 'IT', 'HR', 'FINANCE'];
@@ -1311,27 +1477,31 @@ async function startServer() {
     const candidateIssueIds = issueResult.rows.map((issue: any) => Number(issue.id)).filter((issueId) => Number.isFinite(issueId));
     const feedbackByIssueId = new Map<number, any[]>();
     if (candidateIssueIds.length > 0) {
-      const feedbackResult = await query<{
-        compared_issue_id: number;
-        input_title: string;
-        normalized_input_title: string;
-        feedback_type: 'MATCH' | 'NO_MATCH';
-        actor_user_id: number;
-      }>(
-        `
-        SELECT compared_issue_id, input_title, normalized_input_title, feedback_type, actor_user_id
-        FROM issue_similarity_feedback
-        WHERE compared_issue_id = ANY($1::int[])
-        `,
-        [candidateIssueIds]
-      );
+      try {
+        const feedbackResult = await query<{
+          compared_issue_id: number;
+          input_title: string;
+          normalized_input_title: string;
+          feedback_type: 'MATCH' | 'NO_MATCH';
+          actor_user_id: number;
+        }>(
+          `
+          SELECT compared_issue_id, input_title, normalized_input_title, feedback_type, actor_user_id
+          FROM issue_similarity_feedback
+          WHERE compared_issue_id = ANY($1::int[])
+          `,
+          [candidateIssueIds]
+        );
 
-      feedbackResult.rows.forEach((row) => {
-        const issueId = Number(row.compared_issue_id);
-        const existing = feedbackByIssueId.get(issueId) || [];
-        existing.push(row);
-        feedbackByIssueId.set(issueId, existing);
-      });
+        feedbackResult.rows.forEach((row) => {
+          const issueId = Number(row.compared_issue_id);
+          const existing = feedbackByIssueId.get(issueId) || [];
+          existing.push(row);
+          feedbackByIssueId.set(issueId, existing);
+        });
+      } catch (error) {
+        console.warn('Semakan pembelajaran padanan tidak dapat dimuatkan. Semakan isu berulang diteruskan tanpa pembelajaran tempatan.', error);
+      }
     }
 
     const similarIssues = issueResult.rows
@@ -1695,6 +1865,361 @@ async function startServer() {
     });
   }));
 
+  app.get('/api/announcements', authenticate, asyncHandler(async (req: any, res) => {
+    if (req.user.role === 'ADMIN') {
+      const result = await query(`
+        SELECT
+          a.id,
+          a.title,
+          a.message,
+          a.is_active,
+          a.created_at,
+          a.created_by,
+          u.username AS created_by_username,
+          COUNT(ar.user_id)::text AS read_count
+        FROM announcements a
+        LEFT JOIN users u ON u.id = a.created_by
+        LEFT JOIN announcement_reads ar ON ar.announcement_id = a.id
+        GROUP BY a.id, a.title, a.message, a.is_active, a.created_at, a.created_by, u.username
+        ORDER BY a.created_at DESC, a.id DESC
+      `);
+
+      return res.json(result.rows.map((row: any) => ({
+        id: Number(row.id),
+        title: row.title,
+        message: row.message,
+        is_active: Number(row.is_active || 0),
+        created_at: row.created_at,
+        created_by: row.created_by !== null && row.created_by !== undefined ? Number(row.created_by) : null,
+        created_by_username: row.created_by_username || null,
+        read_count: Number(row.read_count || 0),
+      })));
+    }
+
+    const result = await query(`
+      SELECT
+        a.id,
+        a.title,
+        a.message,
+        a.is_active,
+        a.created_at,
+        a.created_by,
+        u.username AS created_by_username,
+        CASE WHEN ar.user_id IS NULL THEN 0 ELSE 1 END AS is_read
+      FROM announcements a
+      LEFT JOIN users u ON u.id = a.created_by
+      LEFT JOIN announcement_reads ar
+        ON ar.announcement_id = a.id
+        AND ar.user_id = $1
+      WHERE a.is_active = 1
+      ORDER BY a.created_at DESC, a.id DESC
+      LIMIT 50
+    `, [req.user.id]);
+
+    res.json(result.rows.map((row: any) => ({
+      id: Number(row.id),
+      title: row.title,
+      message: row.message,
+      is_active: Number(row.is_active || 0),
+      created_at: row.created_at,
+      created_by: row.created_by !== null && row.created_by !== undefined ? Number(row.created_by) : null,
+      created_by_username: row.created_by_username || null,
+      is_read: Number(row.is_read || 0),
+    })));
+  }));
+
+  app.get('/api/announcements/unread-summary', authenticate, asyncHandler(async (req: any, res) => {
+    if (req.user.role === 'ADMIN') {
+      return res.json({ total_unread: 0, items: [] });
+    }
+
+    const [countResult, itemResult] = await Promise.all([
+      query<{ total_unread: string }>(`
+        SELECT COUNT(*)::text AS total_unread
+        FROM announcements a
+        LEFT JOIN announcement_reads ar
+          ON ar.announcement_id = a.id
+          AND ar.user_id = $1
+        WHERE a.is_active = 1
+          AND ar.user_id IS NULL
+      `, [req.user.id]),
+      query(`
+        SELECT
+          a.id,
+          a.title,
+          a.message,
+          a.created_at,
+          u.username AS created_by_username
+        FROM announcements a
+        LEFT JOIN users u ON u.id = a.created_by
+        LEFT JOIN announcement_reads ar
+          ON ar.announcement_id = a.id
+          AND ar.user_id = $1
+        WHERE a.is_active = 1
+          AND ar.user_id IS NULL
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT 8
+      `, [req.user.id]),
+    ]);
+
+    res.json({
+      total_unread: Number(countResult.rows[0]?.total_unread || 0),
+      items: itemResult.rows.map((row: any) => ({
+        id: Number(row.id),
+        title: row.title,
+        message: row.message,
+        created_at: row.created_at,
+        created_by_username: row.created_by_username || null,
+      })),
+    });
+  }));
+
+  app.post('/api/announcements', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
+    try {
+      const title = normalizeAnnouncementTitle(req.body.title);
+      const message = normalizeAnnouncementMessage(req.body.message);
+
+      const result = await query(
+        `
+        INSERT INTO announcements (title, message, is_active, created_by, created_at)
+        VALUES ($1, $2, 1, $3, NOW())
+        RETURNING id
+        `,
+        [title, message, req.user.id]
+      );
+
+      await writeAuditLog(req, {
+        actor: req.user,
+        action: 'CREATE_ANNOUNCEMENT',
+        entityType: 'ANNOUNCEMENT',
+        entityId: result.rows[0].id,
+        targetLabel: title,
+        details: {
+          message_preview: message.slice(0, 180),
+        },
+      });
+
+      res.json({ id: result.rows[0].id });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }));
+
+  app.delete('/api/announcements/:id', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
+    const announcementResult = await query<{
+      id: number;
+      title: string;
+      is_active: number;
+    }>(
+      'SELECT id, title, is_active FROM announcements WHERE id = $1 LIMIT 1',
+      [req.params.id]
+    );
+
+    const announcement = announcementResult.rows[0];
+    if (!announcement) {
+      return res.status(404).json({ error: 'Announcement tidak ditemui' });
+    }
+
+    await query('UPDATE announcements SET is_active = 0 WHERE id = $1', [req.params.id]);
+
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'DELETE_ANNOUNCEMENT',
+      entityType: 'ANNOUNCEMENT',
+      entityId: req.params.id,
+      targetLabel: announcement.title,
+      details: {
+        previous_status: Number(announcement.is_active || 0) === 1 ? 'AKTIF' : 'TIDAK_AKTIF',
+      },
+    });
+
+    res.json({ success: true });
+  }));
+
+  app.post('/api/announcements/:id/read', authenticate, asyncHandler(async (req: any, res) => {
+    const announcementResult = await query<{ id: number }>(
+      'SELECT id FROM announcements WHERE id = $1 AND is_active = 1 LIMIT 1',
+      [req.params.id]
+    );
+
+    if (announcementResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Announcement tidak ditemui atau tidak lagi aktif' });
+    }
+
+    await query(`
+      INSERT INTO announcement_reads (announcement_id, user_id, read_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (announcement_id, user_id)
+      DO UPDATE SET read_at = EXCLUDED.read_at
+    `, [req.params.id, req.user.id]);
+
+    res.json({ success: true });
+  }));
+
+  app.get('/api/admin/report-completeness/last-year', authenticate, isAdmin, asyncHandler(async (_req: any, res: any) => {
+    const reportYear = getLastCompletedReportYear();
+    const rows = await getIncompleteDepartmentReportsForYear(reportYear);
+    res.json(rows);
+  }));
+
+  app.post('/api/admin/report-completeness/last-year/:departmentId/remind', authenticate, isAdmin, asyncHandler(async (req: any, res: any) => {
+    const reportYear = getLastCompletedReportYear();
+    const departmentId = Number(req.params.departmentId);
+    if (!Number.isFinite(departmentId) || departmentId <= 0) {
+      return res.status(400).json({ error: 'Jabatan sasaran tidak sah' });
+    }
+
+    const incompleteRows = await getIncompleteDepartmentReportsForYear(reportYear);
+    const targetDepartment = incompleteRows.find((item) => item.department_id === departmentId);
+    if (!targetDepartment) {
+      return res.status(404).json({ error: 'Jabatan tidak ditemui atau laporan tahun lepas telah lengkap' });
+    }
+    if (targetDepartment.active_user_count <= 0) {
+      return res.status(400).json({ error: 'Tiada pengguna jabatan yang aktif untuk menerima peringatan ini' });
+    }
+
+    const missingLabelsText = targetDepartment.missing_labels.join(', ');
+    const title = `Peringatan HQ: Laporan ${reportYear} belum lengkap`;
+    const message = `HQ mendapati laporan tahun ${reportYear} bagi jabatan anda masih belum lengkap. Sila lengkapkan dan hantar ${missingLabelsText} secepat mungkin untuk semakan rasmi HQ.`;
+
+    await query(
+      `
+      UPDATE report_submission_reminders
+      SET is_active = 0
+      WHERE department_id = $1
+        AND report_year = $2
+        AND is_active = 1
+      `,
+      [departmentId, reportYear]
+    );
+
+    const insertResult = await query<{ id: number }>(
+      `
+      INSERT INTO report_submission_reminders (
+        department_id,
+        report_year,
+        missing_meeting_labels,
+        title,
+        message,
+        is_active,
+        created_by,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, 1, $6, NOW())
+      RETURNING id
+      `,
+      [departmentId, reportYear, missingLabelsText, title, message, req.user.id]
+    );
+
+    await writeAuditLog(req, {
+      actor: req.user,
+      action: 'SEND_REPORT_SUBMISSION_REMINDER',
+      entityType: 'REPORT_REMINDER',
+      entityId: insertResult.rows[0].id,
+      targetLabel: targetDepartment.department_name,
+      details: {
+        report_year: reportYear,
+        missing_labels: targetDepartment.missing_labels,
+        active_user_count: targetDepartment.active_user_count,
+      },
+    });
+
+    res.json({
+      success: true,
+      id: insertResult.rows[0].id,
+      message: `Peringatan berjaya dihantar kepada pengguna aktif ${targetDepartment.department_name}.`,
+    });
+  }));
+
+  app.get('/api/report-submission-reminders/unread-summary', authenticate, asyncHandler(async (req: any, res: any) => {
+    if (req.user.role === 'ADMIN' || !req.user.department_id) {
+      return res.json({ total_unread: 0, items: [] });
+    }
+
+    const [countResult, itemResult] = await Promise.all([
+      query<{ total_unread: string }>(
+        `
+        SELECT COUNT(*)::text AS total_unread
+        FROM report_submission_reminders r
+        LEFT JOIN report_submission_reminder_reads rr
+          ON rr.reminder_id = r.id
+          AND rr.user_id = $1
+        WHERE r.department_id = $2
+          AND r.is_active = 1
+          AND rr.user_id IS NULL
+        `,
+        [req.user.id, req.user.department_id]
+      ),
+      query(
+        `
+        SELECT
+          r.id,
+          r.report_year,
+          r.title,
+          r.message,
+          r.missing_meeting_labels,
+          r.created_at
+        FROM report_submission_reminders r
+        LEFT JOIN report_submission_reminder_reads rr
+          ON rr.reminder_id = r.id
+          AND rr.user_id = $1
+        WHERE r.department_id = $2
+          AND r.is_active = 1
+          AND rr.user_id IS NULL
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT 8
+        `,
+        [req.user.id, req.user.department_id]
+      ),
+    ]);
+
+    res.json({
+      total_unread: Number(countResult.rows[0]?.total_unread || 0),
+      items: itemResult.rows.map((row: any) => ({
+        id: Number(row.id),
+        report_year: Number(row.report_year),
+        title: row.title,
+        message: row.message,
+        missing_labels: parseMeetingLabelList(row.missing_meeting_labels),
+        created_at: row.created_at,
+      })),
+    });
+  }));
+
+  app.post('/api/report-submission-reminders/:id/read', authenticate, asyncHandler(async (req: any, res: any) => {
+    if (req.user.role === 'ADMIN' || !req.user.department_id) {
+      return res.json({ success: true });
+    }
+
+    const reminderResult = await query<{ id: number }>(
+      `
+      SELECT id
+      FROM report_submission_reminders
+      WHERE id = $1
+        AND department_id = $2
+        AND is_active = 1
+      LIMIT 1
+      `,
+      [req.params.id, req.user.department_id]
+    );
+
+    if (reminderResult.rowCount === 0) {
+      return res.status(404).json({ error: 'Peringatan laporan tidak ditemui' });
+    }
+
+    await query(
+      `
+      INSERT INTO report_submission_reminder_reads (reminder_id, user_id, read_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (reminder_id, user_id)
+      DO UPDATE SET read_at = EXCLUDED.read_at
+      `,
+      [req.params.id, req.user.id]
+    );
+
+    res.json({ success: true });
+  }));
+
   app.patch('/api/issues/:id', authenticate, asyncHandler(async (req: any, res) => {
     const issueResult = await query(`
       SELECT i.*, m.department_id, m.is_locked
@@ -1842,7 +2367,7 @@ async function startServer() {
   }));
 
   app.get('/api/dashboard/issues', authenticate, asyncHandler(async (req: any, res) => {
-    let { department_id, year, bil_mesyuarat, category, keyword, status, official_only } = req.query;
+    let { department_id, year, bil_mesyuarat, category, keyword, status, issue_age_bucket, official_only } = req.query;
     if (req.user.role !== 'ADMIN') {
       department_id = req.user.department_id;
       official_only = undefined;
@@ -1888,9 +2413,28 @@ async function startServer() {
       status === 'Selesai' ? 'Selesai' :
       status === 'Belum Selesai' ? 'Belum Selesai' :
       null;
-    if (normalizedStatus) {
-      params.push(normalizedStatus);
+    const normalizedIssueAgeBucket =
+      issue_age_bucket === '3_bulan' ? '3_bulan' :
+      issue_age_bucket === '6_bulan' ? '6_bulan' :
+      issue_age_bucket === '1_tahun' ? '1_tahun' :
+      issue_age_bucket === 'lebih_setahun' ? 'lebih_setahun' :
+      null;
+    const effectiveStatus = normalizedIssueAgeBucket ? 'Belum Selesai' : normalizedStatus;
+    if (effectiveStatus) {
+      params.push(effectiveStatus);
       filters.push(`i.status = $${params.length}`);
+    }
+
+    if (normalizedIssueAgeBucket === '3_bulan') {
+      filters.push(`m.tarikh_mesyuarat >= CURRENT_DATE - INTERVAL '3 months'`);
+    } else if (normalizedIssueAgeBucket === '6_bulan') {
+      filters.push(`m.tarikh_mesyuarat < CURRENT_DATE - INTERVAL '3 months'`);
+      filters.push(`m.tarikh_mesyuarat >= CURRENT_DATE - INTERVAL '6 months'`);
+    } else if (normalizedIssueAgeBucket === '1_tahun') {
+      filters.push(`m.tarikh_mesyuarat < CURRENT_DATE - INTERVAL '6 months'`);
+      filters.push(`m.tarikh_mesyuarat >= CURRENT_DATE - INTERVAL '1 year'`);
+    } else if (normalizedIssueAgeBucket === 'lebih_setahun') {
+      filters.push(`m.tarikh_mesyuarat < CURRENT_DATE - INTERVAL '1 year'`);
     }
 
     const issues = await query(`
@@ -1900,7 +2444,8 @@ async function startServer() {
         m.tarikh_mesyuarat AS meeting_date,
         m.department_id,
         d.name AS department_name,
-        m.is_locked AS meeting_is_locked
+        m.is_locked AS meeting_is_locked,
+        GREATEST(0, CURRENT_DATE - m.tarikh_mesyuarat) AS issue_age_days
       FROM issues i
       JOIN meetings m ON m.id = i.meeting_id
       JOIN departments d ON d.id = m.department_id
@@ -1927,6 +2472,7 @@ async function startServer() {
       department_id: Number(row.department_id),
       department_name: row.department_name,
       meeting_is_locked: Number(row.meeting_is_locked || 0),
+      issue_age_days: Number(row.issue_age_days || 0),
     })));
   }));
 

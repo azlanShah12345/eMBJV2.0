@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../services/api';
-import { CategoryStats, DashboardIssueFilters, Department, getCanonicalCategoryLabel, getCategoryFamilyMembers, getGroupedCategoryOptions, Meeting, PengelasanReport, User } from '../types';
-import { Filter, Download, TrendingUp, Users, FileSpreadsheet, Lock, CheckCircle2, Trash2, FileText, Tag, Building2, Clock3, RefreshCw, Activity, X, Search } from 'lucide-react';
+import { CategoryStats, DashboardIssueFilters, Department, getCanonicalCategoryLabel, getCategoryFamilyMembers, getGroupedCategoryOptions, LastYearIncompleteReportItem, Meeting, PengelasanReport, User } from '../types';
+import { Filter, Download, TrendingUp, Users, FileSpreadsheet, Lock, CheckCircle2, Trash2, FileText, Tag, Building2, Clock3, RefreshCw, Activity, X, Search, Bell } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
@@ -19,6 +19,8 @@ export default function Dashboard() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [pendingUnlocks, setPendingUnlocks] = useState<Meeting[]>([]);
   const [pendingDeletes, setPendingDeletes] = useState<Meeting[]>([]);
+  const [lastYearIncompleteReports, setLastYearIncompleteReports] = useState<LastYearIncompleteReportItem[]>([]);
+  const [sendingReminderDepartmentId, setSendingReminderDepartmentId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmConfig, setConfirmConfig] = useState<{
     isOpen: boolean;
@@ -115,8 +117,8 @@ export default function Dashboard() {
       return;
     }
 
-    if (!selectedYear || !availableYears.includes(Number(selectedYear))) {
-      setSelectedYear(String(availableYears[0]));
+    if (selectedYear && !availableYears.includes(Number(selectedYear))) {
+      setSelectedYear('');
     }
   }, [meetings, selectedYear]);
 
@@ -154,10 +156,11 @@ export default function Dashboard() {
 
   const fetchInitialData = async () => {
     try {
-      const [depts, allMeetings, allCategories] = await Promise.all([
+      const [depts, allMeetings, allCategories, incompleteReports] = await Promise.all([
         api.getDepartments(),
         api.getMeetings(),
-        api.getCategories()
+        api.getCategories(),
+        api.getLastYearIncompleteReports(),
       ]);
       setDepartments(depts);
       setCategories(
@@ -171,8 +174,22 @@ export default function Dashboard() {
       setMeetings(allMeetings);
       setPendingUnlocks(allMeetings.filter(m => m.unlock_requested === 1));
       setPendingDeletes(allMeetings.filter(m => m.delete_requested === 1));
+      setLastYearIncompleteReports(incompleteReports);
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleSendLastYearReminder = async (item: LastYearIncompleteReportItem) => {
+    try {
+      setSendingReminderDepartmentId(item.department_id);
+      const response = await api.sendLastYearReportReminder(item.department_id);
+      showToast(response.message || 'Peringatan berjaya dihantar');
+      await fetchInitialData();
+    } catch (error: any) {
+      showToast(error?.message || 'Gagal menghantar peringatan laporan', 'error');
+    } finally {
+      setSendingReminderDepartmentId(null);
     }
   };
 
@@ -703,6 +720,7 @@ export default function Dashboard() {
     },
   ] as const;
   const totalPendingRequests = pendingUnlocks.length + pendingDeletes.length;
+  const lastYearReminderYear = lastYearIncompleteReports[0]?.report_year || (new Date().getFullYear() - 1);
 
   const exportLampiranAPDF = () => {
     if (!hasLampiranAData) {
@@ -1315,7 +1333,7 @@ export default function Dashboard() {
             <p className="text-sm text-slate-500">Gunakan penapis untuk semak prestasi mengikut jabatan, mesyuarat, atau kategori.</p>
           </div>
           <button 
-            onClick={() => { setDeptId(''); setSelectedYear(analyticsYears[0] ? String(analyticsYears[0]) : ''); setBil(''); setCategory(''); }}
+            onClick={() => { setDeptId(''); setSelectedYear(''); setBil(''); setCategory(''); }}
             className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Tetapkan Semula Penapis
@@ -1331,6 +1349,7 @@ export default function Dashboard() {
             onChange={(e) => setSelectedYear(e.target.value)}
             className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
           >
+            <option value="">Semua Tahun</option>
             {analyticsYears.length === 0 && <option value="">Tiada Tahun</option>}
             {analyticsYears.map((year) => (
               <option key={year} value={year}>{year}</option>
@@ -1395,12 +1414,12 @@ export default function Dashboard() {
             <p className="mt-2 text-sm font-semibold text-slate-800">{visibleStats.length} kategori mempunyai data</p>
           </div>
         </div>
-        {(deptId || bil || category || (selectedYear && analyticsYears[0] && String(analyticsYears[0]) !== selectedYear)) && (
+        {(deptId || bil || category || selectedYear) && (
           <div className="mt-4 flex flex-wrap gap-3">
-            {selectedYear && analyticsYears[0] && String(analyticsYears[0]) !== selectedYear && (
+            {selectedYear && (
               <button
                 type="button"
-                onClick={() => setSelectedYear(analyticsYears[0] ? String(analyticsYears[0]) : '')}
+                onClick={() => setSelectedYear('')}
                 className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
               >
                 Buang penapis tahun
@@ -1511,6 +1530,83 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      <div className="rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#fffaf0_0%,#ffffff_45%,#f8fafc_100%)] p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-amber-700">Peringatan Laporan</p>
+            <h3 className="mt-2 text-2xl font-black text-slate-900">Semakan penghantaran tahun {lastYearReminderYear}</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              HQ boleh mengenal pasti jabatan yang belum melengkapkan Bil 1, Bil 2, dan Bil 3 bagi tahun lepas, kemudian menghantar
+              peringatan terus kepada pengguna jabatan yang masih aktif.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-[0.24em] text-amber-700">Jabatan Belum Lengkap</p>
+            <p className="mt-2 text-3xl font-black text-slate-900">{lastYearIncompleteReports.length}</p>
+            <p className="mt-1 text-xs text-slate-500">Disemak berdasarkan laporan rasmi yang telah dihantar ke HQ.</p>
+          </div>
+        </div>
+
+        <div className="mt-6">
+          {lastYearIncompleteReports.length === 0 ? (
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-5 text-sm font-medium text-emerald-800">
+              Semua jabatan yang mempunyai pengguna aktif telah melengkapkan penghantaran Bil 1, Bil 2, dan Bil 3 bagi tahun {lastYearReminderYear}.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {lastYearIncompleteReports.map((item) => (
+                <div key={`last-year-reminder-${item.department_id}`} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-lg font-bold text-slate-900">{item.department_name}</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Laporan tahun {item.report_year} masih belum lengkap. Bil yang belum dihantar: {item.missing_labels.join(', ')}.
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold uppercase tracking-[0.18em]">
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-700">
+                          Lengkap dihantar: {item.submitted_labels.length > 0 ? item.submitted_labels.join(', ') : 'Tiada'}
+                        </span>
+                        <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700">
+                          Belum lengkap: {item.missing_labels.join(', ')}
+                        </span>
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700">
+                          Pengguna aktif: {item.active_user_count}
+                        </span>
+                      </div>
+                      {item.latest_reminder_at && (
+                        <p className="mt-3 text-xs text-slate-500">
+                          Peringatan terakhir dihantar pada {new Date(item.latest_reminder_at).toLocaleString('ms-MY', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-col items-start gap-2 lg:items-end">
+                      <button
+                        type="button"
+                        onClick={() => handleSendLastYearReminder(item)}
+                        disabled={sendingReminderDepartmentId === item.department_id || item.active_user_count === 0}
+                        className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Bell size={16} />
+                        {sendingReminderDepartmentId === item.department_id ? 'Sedang menghantar...' : 'Hantar Peringatan'}
+                      </button>
+                      {item.active_user_count === 0 && (
+                        <p className="text-xs text-rose-600">Tiada pengguna aktif untuk menerima peringatan.</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
