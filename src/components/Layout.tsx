@@ -247,7 +247,9 @@ export default function Layout({ user, onLogout }: LayoutProps) {
             {isSidebarOpen && (
               <div className="flex flex-col overflow-hidden">
                 <span className="truncate text-sm font-bold text-white">{user.username}</span>
-                <span className="truncate text-xs text-slate-300">{user.department_name}</span>
+                <span className="truncate text-xs text-slate-300">
+                  {user.role === 'ADMIN' ? 'Pentadbiran HQ' : user.department_name}
+                </span>
               </div>
             )}
           </div>
