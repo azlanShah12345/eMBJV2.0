@@ -9,12 +9,6 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import dotenv from 'dotenv';
-import {
-  calculateIssueDuplicateSimilarity,
-  explainIssueDuplicateMatch,
-  normalizeSuggestionText,
-  summarizeIssueDuplicateFeedback,
-} from './src/utils/issueCategorySuggestion.ts';
 
 dotenv.config();
 
@@ -28,8 +22,42 @@ const normalizeMinitPath = (minitPath: string | null | undefined) => {
   return normalized.startsWith('/') ? normalized : `/${normalized}`;
 };
 
-const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) =>
-  calculateIssueDuplicateSimilarity(String(leftTitle || ''), String(rightTitle || ''));
+const normalizeIssueComparisonText = (value: unknown) =>
+  String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getIssueComparisonTokens = (value: unknown) =>
+  normalizeIssueComparisonText(value)
+    .split(' ')
+    .filter((token) => token.length >= 3);
+
+const calculateIssueSimilarityScore = (leftTitle: unknown, rightTitle: unknown) => {
+  const normalizedLeft = normalizeIssueComparisonText(leftTitle);
+  const normalizedRight = normalizeIssueComparisonText(rightTitle);
+
+  if (!normalizedLeft || !normalizedRight) return 0;
+  if (normalizedLeft === normalizedRight) return 100;
+  if (normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft)) return 92;
+
+  const leftTokens = Array.from(new Set(getIssueComparisonTokens(normalizedLeft)));
+  const rightTokens = Array.from(new Set(getIssueComparisonTokens(normalizedRight)));
+  if (leftTokens.length === 0 || rightTokens.length === 0) return 0;
+
+  const rightTokenSet = new Set(rightTokens);
+  const intersectionCount = leftTokens.filter((token) => rightTokenSet.has(token)).length;
+  if (intersectionCount === 0) return 0;
+
+  const unionCount = new Set([...leftTokens, ...rightTokens]).size;
+  const overlapScore = intersectionCount / Math.min(leftTokens.length, rightTokens.length);
+  const jaccardScore = intersectionCount / unionCount;
+
+  return Math.min(100, Math.max(0, Math.round((overlapScore * 70 + jaccardScore * 30) * 100)));
+};
 
 async function startServer() {
   const app = express();
@@ -118,28 +146,7 @@ async function startServer() {
       FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY(meeting_id) REFERENCES meetings(id) ON DELETE CASCADE
     );
-
-    CREATE TABLE IF NOT EXISTS issue_similarity_feedback (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      source_meeting_id INTEGER NOT NULL,
-      compared_issue_id INTEGER NOT NULL,
-      actor_user_id INTEGER NOT NULL,
-      actor_department_id INTEGER,
-      input_title TEXT NOT NULL,
-      normalized_input_title TEXT NOT NULL,
-      feedback_type TEXT NOT NULL CHECK (feedback_type IN ('MATCH', 'NO_MATCH')),
-      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(actor_user_id, compared_issue_id, normalized_input_title),
-      FOREIGN KEY(source_meeting_id) REFERENCES meetings(id) ON DELETE CASCADE,
-      FOREIGN KEY(compared_issue_id) REFERENCES issues(id) ON DELETE CASCADE,
-      FOREIGN KEY(actor_user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY(actor_department_id) REFERENCES departments(id) ON DELETE SET NULL
-    );
   `);
-
-  await db.run('CREATE INDEX IF NOT EXISTS idx_issue_similarity_feedback_issue ON issue_similarity_feedback (compared_issue_id)');
-  await db.run('CREATE INDEX IF NOT EXISTS idx_issue_similarity_feedback_meeting ON issue_similarity_feedback (source_meeting_id)');
-  await db.run('CREATE INDEX IF NOT EXISTS idx_issue_similarity_feedback_actor ON issue_similarity_feedback (actor_user_id)');
 
   // Ensure columns exist (migrations)
   const migrations = [
@@ -603,140 +610,26 @@ async function startServer() {
           LIMIT 250
         `, meeting.department_id);
 
-    const candidateIssueIds = issues.map((issue: any) => Number(issue.id)).filter((issueId: number) => Number.isFinite(issueId));
-    const feedbackByIssueId = new Map<number, any[]>();
-    if (candidateIssueIds.length > 0) {
-      const placeholders = candidateIssueIds.map(() => '?').join(', ');
-      const feedbackRows = await db.all(`
-        SELECT compared_issue_id, input_title, normalized_input_title, feedback_type, actor_user_id
-        FROM issue_similarity_feedback
-        WHERE compared_issue_id IN (${placeholders})
-      `, ...candidateIssueIds) as any[];
-
-      feedbackRows.forEach((row: any) => {
-        const issueId = Number(row.compared_issue_id);
-        const existing = feedbackByIssueId.get(issueId) || [];
-        existing.push(row);
-        feedbackByIssueId.set(issueId, existing);
-      });
-    }
-
     const similarIssues = issues
-      .map((issue: any) => {
-        const baseSimilarityScore = calculateIssueSimilarityScore(requestedTitle, issue.title);
-        const matchExplanation = explainIssueDuplicateMatch(requestedTitle, issue.title);
-        const feedbackSummary = summarizeIssueDuplicateFeedback(
-          requestedTitle,
-          feedbackByIssueId.get(Number(issue.id)) || [],
-          req.user.id
-        );
-        const similarityScore = Math.max(0, Math.min(100, baseSimilarityScore + feedbackSummary.adjustment));
-
-        return {
-          id: Number(issue.id),
-          meeting_id: Number(issue.meeting_id),
-          meeting_label: issue.bil_mesyuarat,
-          meeting_date: issue.tarikh_mesyuarat,
-          department_name: issue.department_name,
-          category: issue.category,
-          title: issue.title,
-          status: issue.status,
-          is_from_previous: Number(issue.is_from_previous || 0),
-          updated_at: issue.updated_at,
-          similarity_score: similarityScore,
-          base_similarity_score: baseSimilarityScore,
-          match_reason: matchExplanation.summary,
-          shared_keywords: matchExplanation.sharedKeywords,
-          is_same_meeting: Number(issue.meeting_id) === Number(meetingId),
-          feedback_match_count: feedbackSummary.matchCount,
-          feedback_no_match_count: feedbackSummary.noMatchCount,
-          dominant_feedback_type: feedbackSummary.dominantFeedbackType,
-          current_user_feedback_type: feedbackSummary.currentUserFeedbackType,
-        };
-      })
+      .map((issue: any) => ({
+        id: Number(issue.id),
+        meeting_id: Number(issue.meeting_id),
+        meeting_label: issue.bil_mesyuarat,
+        meeting_date: issue.tarikh_mesyuarat,
+        department_name: issue.department_name,
+        category: issue.category,
+        title: issue.title,
+        status: issue.status,
+        is_from_previous: Number(issue.is_from_previous || 0),
+        updated_at: issue.updated_at,
+        similarity_score: calculateIssueSimilarityScore(requestedTitle, issue.title),
+        is_same_meeting: Number(issue.meeting_id) === Number(meetingId),
+      }))
       .filter((issue) => issue.similarity_score >= 45)
       .sort((left, right) => right.similarity_score - left.similarity_score || Number(right.is_same_meeting) - Number(left.is_same_meeting))
       .slice(0, 6);
 
     res.json(similarIssues);
-  });
-
-  app.post('/api/meetings/:id/similar-issues/feedback', authenticate, async (req: any, res) => {
-    const meetingId = req.params.id;
-    const meeting = await db.get(`
-      SELECT m.id, m.department_id
-      FROM meetings m
-      WHERE m.id = ?
-    `, meetingId) as any;
-
-    if (!meeting) return res.status(404).json({ error: 'Mesyuarat tidak ditemui' });
-    if (req.user.role !== 'ADMIN' && Number(meeting.department_id) !== Number(req.user.department_id)) {
-      return res.status(403).json({ error: 'Akses tidak dibenarkan' });
-    }
-
-    const requestedTitle = String(req.body.title || '').trim();
-    if (!requestedTitle) {
-      return res.status(400).json({ error: 'Tajuk isu diperlukan' });
-    }
-    if (requestedTitle.length < 4) {
-      return res.status(400).json({ error: 'Tajuk isu terlalu pendek untuk pembelajaran padanan' });
-    }
-
-    const comparedIssueId = Number(req.body.compared_issue_id);
-    if (!Number.isFinite(comparedIssueId) || comparedIssueId <= 0) {
-      return res.status(400).json({ error: 'Rekod isu padanan tidak sah' });
-    }
-
-    const feedbackType = String(req.body.feedback_type || '').trim().toUpperCase();
-    if (feedbackType !== 'MATCH' && feedbackType !== 'NO_MATCH') {
-      return res.status(400).json({ error: 'Jenis maklum balas padanan tidak sah' });
-    }
-
-    const comparedIssue = await db.get(`
-      SELECT i.id, i.title, m.department_id
-      FROM issues i
-      JOIN meetings m ON m.id = i.meeting_id
-      WHERE i.id = ?
-      LIMIT 1
-    `, comparedIssueId) as any;
-
-    if (!comparedIssue) {
-      return res.status(404).json({ error: 'Isu rujukan tidak ditemui' });
-    }
-
-    if (req.user.role !== 'ADMIN' && Number(comparedIssue.department_id) !== Number(meeting.department_id)) {
-      return res.status(403).json({ error: 'Padanan ini berada di luar skop jabatan anda' });
-    }
-
-    const normalizedInputTitle = normalizeSuggestionText(requestedTitle);
-    await db.run(`
-      INSERT INTO issue_similarity_feedback (
-        source_meeting_id,
-        compared_issue_id,
-        actor_user_id,
-        actor_department_id,
-        input_title,
-        normalized_input_title,
-        feedback_type,
-        created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-      ON CONFLICT(actor_user_id, compared_issue_id, normalized_input_title)
-      DO UPDATE SET
-        source_meeting_id = excluded.source_meeting_id,
-        actor_department_id = excluded.actor_department_id,
-        input_title = excluded.input_title,
-        feedback_type = excluded.feedback_type,
-        created_at = CURRENT_TIMESTAMP
-    `, meetingId, comparedIssueId, req.user.id, req.user.department_id ?? null, requestedTitle, normalizedInputTitle, feedbackType);
-
-    res.json({
-      success: true,
-      feedback_type: feedbackType,
-      message: feedbackType === 'MATCH'
-        ? 'Padanan disimpan untuk pembelajaran tempatan.'
-        : 'Maklum balas bukan padanan disimpan untuk pembelajaran tempatan.',
-    });
   });
 
   app.post('/api/meetings/:id/issues', authenticate, async (req: any, res) => {
