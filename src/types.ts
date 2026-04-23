@@ -58,6 +58,7 @@ export interface DashboardIssueFilters {
   year?: string;
   bil_mesyuarat?: string;
   category?: string;
+  keyword?: string;
   status?: 'Selesai' | 'Belum Selesai' | '';
 }
 

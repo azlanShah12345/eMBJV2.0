@@ -84,6 +84,7 @@ export const api = {
     department_id?: number;
     bil_mesyuarat?: string;
     category?: string;
+    keyword?: string;
     year?: number;
     status?: 'Selesai' | 'Belum Selesai';
     official_only?: boolean;
