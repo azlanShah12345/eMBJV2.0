@@ -117,22 +117,6 @@ export const api = {
     return handleResponse(res);
   },
 
-  async submitSimilarIssueFeedback(
-    meetingId: number,
-    payload: {
-      title: string;
-      compared_issue_id: number;
-      feedback_type: 'MATCH' | 'NO_MATCH';
-    }
-  ): Promise<{ success: boolean; feedback_type: 'MATCH' | 'NO_MATCH'; message: string }> {
-    const res = await fetch(`${API_BASE}/meetings/${meetingId}/similar-issues/feedback`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(payload),
-    });
-    return handleResponse(res);
-  },
-
   async getIssueCategorySuggestion(meetingId: number, title: string): Promise<IssueCategorySuggestion | null> {
     const query = new URLSearchParams({ title }).toString();
     const res = await fetch(`${API_BASE}/meetings/${meetingId}/issue-category-suggestion?${query}`, { headers: getHeaders() });
