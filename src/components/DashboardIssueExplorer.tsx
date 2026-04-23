@@ -14,6 +14,24 @@ interface DashboardIssueExplorerProps {
 const normalizeStatus = (value?: string | null) =>
   value === 'Selesai' || value === 'Belum Selesai' ? value : '';
 
+const normalizeIssueAgeBucket = (value?: string | null) =>
+  value === '3_bulan' || value === '6_bulan' || value === '1_tahun' || value === 'lebih_setahun' ? value : '';
+
+const getIssueAgeBucketLabel = (value?: string | null) => {
+  switch (value) {
+    case '3_bulan':
+      return '3 Bulan';
+    case '6_bulan':
+      return '6 Bulan';
+    case '1_tahun':
+      return '1 Tahun';
+    case 'lebih_setahun':
+      return 'Lebih Setahun';
+    default:
+      return 'Semua Tempoh';
+  }
+};
+
 const formatDate = (value: string) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? '-' : date.toLocaleDateString('ms-MY');
@@ -45,6 +63,9 @@ export default function DashboardIssueExplorer({
   const [selectedKeyword, setSelectedKeyword] = useState(() => String(initialFilters?.keyword || '').trim());
   const [selectedStatus, setSelectedStatus] = useState<'Selesai' | 'Belum Selesai' | ''>(
     () => normalizeStatus(initialFilters?.status) as 'Selesai' | 'Belum Selesai' | ''
+  );
+  const [selectedIssueAgeBucket, setSelectedIssueAgeBucket] = useState<'3_bulan' | '6_bulan' | '1_tahun' | 'lebih_setahun' | ''>(
+    () => normalizeIssueAgeBucket(initialFilters?.issue_age_bucket) as '3_bulan' | '6_bulan' | '1_tahun' | 'lebih_setahun' | ''
   );
 
   useEffect(() => {
@@ -118,6 +139,12 @@ export default function DashboardIssueExplorer({
     }
   }, [meetingOptions, selectedMeeting]);
 
+  useEffect(() => {
+    if (selectedIssueAgeBucket && selectedStatus !== 'Belum Selesai') {
+      setSelectedStatus('Belum Selesai');
+    }
+  }, [selectedIssueAgeBucket, selectedStatus]);
+
   const groupedCategoryOptions = getGroupedCategoryOptions(categories);
 
   useEffect(() => {
@@ -147,8 +174,9 @@ export default function DashboardIssueExplorer({
       category: selectedCategory || undefined,
       keyword: selectedKeyword || undefined,
       status: selectedStatus || undefined,
+      issue_age_bucket: selectedIssueAgeBucket || undefined,
     });
-  }, [onFiltersChange, selectedCategory, selectedDepartmentId, selectedKeyword, selectedMeeting, selectedStatus, selectedYear, user.department_id, user.role]);
+  }, [onFiltersChange, selectedCategory, selectedDepartmentId, selectedIssueAgeBucket, selectedKeyword, selectedMeeting, selectedStatus, selectedYear, user.department_id, user.role]);
 
   useEffect(() => {
     const fetchIssues = async () => {
@@ -161,6 +189,7 @@ export default function DashboardIssueExplorer({
           category: selectedCategory || undefined,
           keyword: selectedKeyword || undefined,
           status: selectedStatus || undefined,
+          issue_age_bucket: selectedIssueAgeBucket || undefined,
           official_only: user.role === 'ADMIN',
         });
         setIssues(data);
@@ -173,7 +202,7 @@ export default function DashboardIssueExplorer({
     };
 
     fetchIssues();
-  }, [selectedCategory, selectedDepartmentId, selectedKeyword, selectedMeeting, selectedStatus, selectedYear, user.role]);
+  }, [selectedCategory, selectedDepartmentId, selectedIssueAgeBucket, selectedKeyword, selectedMeeting, selectedStatus, selectedYear, user.role]);
 
   const totalIssues = issues.length;
   const completedIssues = issues.filter((issue) => issue.status === 'Selesai').length;
@@ -193,6 +222,7 @@ export default function DashboardIssueExplorer({
     setSelectedCategory('');
     setSelectedKeyword('');
     setSelectedStatus('');
+    setSelectedIssueAgeBucket('');
   };
 
   return (
@@ -222,7 +252,7 @@ export default function DashboardIssueExplorer({
           <ListFilter className="text-slate-700" size={18} />
           <h3 className="text-lg font-bold text-slate-900">Penapis Senarai Isu</h3>
         </div>
-        <div className={`mt-5 grid grid-cols-1 gap-4 ${user.role === 'ADMIN' ? 'md:grid-cols-2 xl:grid-cols-6' : 'md:grid-cols-2 xl:grid-cols-5'}`}>
+        <div className={`mt-5 grid grid-cols-1 gap-4 ${user.role === 'ADMIN' ? 'md:grid-cols-2 xl:grid-cols-7' : 'md:grid-cols-2 xl:grid-cols-6'}`}>
           {user.role === 'ADMIN' && (
             <div>
               <label className="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Jabatan</label>
@@ -259,12 +289,38 @@ export default function DashboardIssueExplorer({
             <label className="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Status Isu</label>
             <select
               value={selectedStatus}
-              onChange={(e) => setSelectedStatus(normalizeStatus(e.target.value) as 'Selesai' | 'Belum Selesai' | '')}
+              onChange={(e) => {
+                const nextStatus = normalizeStatus(e.target.value) as 'Selesai' | 'Belum Selesai' | '';
+                setSelectedStatus(nextStatus);
+                if (nextStatus !== 'Belum Selesai' && selectedIssueAgeBucket) {
+                  setSelectedIssueAgeBucket('');
+                }
+              }}
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
             >
               <option value="">Semua Status</option>
               <option value="Belum Selesai">Belum Selesai</option>
               <option value="Selesai">Selesai</option>
+            </select>
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Tempoh Isu Belum Selesai</label>
+            <select
+              value={selectedIssueAgeBucket}
+              onChange={(e) => {
+                const nextBucket = normalizeIssueAgeBucket(e.target.value) as '3_bulan' | '6_bulan' | '1_tahun' | 'lebih_setahun' | '';
+                setSelectedIssueAgeBucket(nextBucket);
+                if (nextBucket) {
+                  setSelectedStatus('Belum Selesai');
+                }
+              }}
+              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
+            >
+              <option value="">Semua Tempoh</option>
+              <option value="3_bulan">3 Bulan</option>
+              <option value="6_bulan">6 Bulan</option>
+              <option value="1_tahun">1 Tahun</option>
+              <option value="lebih_setahun">Lebih Setahun</option>
             </select>
           </div>
           <div>
@@ -319,9 +375,9 @@ export default function DashboardIssueExplorer({
             Reset penapis
           </button>
           {user.role === 'ADMIN' ? (
-            <p className="text-xs text-slate-500">Hanya rekod yang telah dihantar ke HQ dimasukkan dalam paparan pentadbir ini. Carian akan menyemak tajuk isu, pegawai bertanggungjawab, dan kategori.</p>
+            <p className="text-xs text-slate-500">Hanya rekod yang telah dihantar ke HQ dimasukkan dalam paparan pentadbir ini. Penapis tempoh isu belum selesai menggunakan tarikh mesyuarat rekod sumber.</p>
           ) : (
-            <p className="text-xs text-slate-500">Pilih `Sepanjang Masa` untuk melihat semua isu jabatan tanpa had tahun. Carian akan menyemak tajuk isu, pegawai bertanggungjawab, dan kategori.</p>
+            <p className="text-xs text-slate-500">Pilih `Sepanjang Masa` untuk melihat semua isu jabatan tanpa had tahun. Penapis tempoh isu belum selesai menggunakan tarikh mesyuarat rekod sumber.</p>
           )}
         </div>
       </div>
@@ -368,7 +424,7 @@ export default function DashboardIssueExplorer({
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.22em] text-slate-400">Skop Jabatan</p>
               <p className="mt-3 text-xl font-black text-slate-900">{scopeDepartmentName}</p>
-              <p className="mt-2 text-sm text-slate-500">{selectedYear || 'Sepanjang Masa'}</p>
+              <p className="mt-2 text-sm text-slate-500">{selectedYear || 'Sepanjang Masa'} | {getIssueAgeBucketLabel(selectedIssueAgeBucket)}</p>
             </div>
             <div className="rounded-2xl bg-blue-50 p-3 text-blue-600">
               <Building2 size={22} />
@@ -397,6 +453,7 @@ export default function DashboardIssueExplorer({
                 {user.role === 'ADMIN' && <th className="px-6 py-4">Jabatan</th>}
                 <th className="px-6 py-4">Mesyuarat</th>
                 <th className="px-6 py-4">Tarikh</th>
+                <th className="px-6 py-4">Usia Isu</th>
                 <th className="px-6 py-4">Status Rekod</th>
                 <th className="px-6 py-4 text-right">Buka</th>
               </tr>
@@ -404,13 +461,13 @@ export default function DashboardIssueExplorer({
             <tbody className="divide-y divide-slate-100">
               {loading || loadingSupport ? (
                 <tr>
-                  <td colSpan={user.role === 'ADMIN' ? 8 : 7} className="px-6 py-12 text-center text-slate-400">
+                  <td colSpan={user.role === 'ADMIN' ? 9 : 8} className="px-6 py-12 text-center text-slate-400">
                     Sedang memuatkan senarai isu...
                   </td>
                 </tr>
               ) : issues.length === 0 ? (
                 <tr>
-                  <td colSpan={user.role === 'ADMIN' ? 8 : 7} className="px-6 py-12 text-center text-slate-400 italic">
+                  <td colSpan={user.role === 'ADMIN' ? 9 : 8} className="px-6 py-12 text-center text-slate-400 italic">
                     Tiada isu ditemui bagi penapis yang dipilih.
                   </td>
                 </tr>
@@ -435,6 +492,11 @@ export default function DashboardIssueExplorer({
                     )}
                     <td className="px-6 py-4 text-sm text-slate-600">{issue.meeting_label}</td>
                     <td className="px-6 py-4 text-sm text-slate-600">{formatDate(issue.meeting_date)}</td>
+                    <td className="px-6 py-4 text-sm text-slate-600">
+                      {typeof issue.issue_age_days === 'number'
+                        ? `${issue.issue_age_days} hari`
+                        : '-'}
+                    </td>
                     <td className="px-6 py-4">
                       <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-slate-600">
                         <CalendarDays size={12} />

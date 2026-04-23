@@ -28,6 +28,8 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
   const [newMessage, setNewMessage] = useState('');
   const [similarIssues, setSimilarIssues] = useState<SimilarIssue[]>([]);
   const [isCheckingSimilarIssues, setIsCheckingSimilarIssues] = useState(false);
+  const [similarIssuesError, setSimilarIssuesError] = useState<string | null>(null);
+  const [submittingSimilarIssueFeedbackKey, setSubmittingSimilarIssueFeedbackKey] = useState<string | null>(null);
   const [issueCategorySuggestion, setIssueCategorySuggestion] = useState<IssueCategorySuggestion | null>(null);
   const [isLoadingIssueCategorySuggestion, setIsLoadingIssueCategorySuggestion] = useState(false);
   const clampPercentage = (value: number) => Math.min(100, Math.max(0, Math.round(value)));
@@ -72,6 +74,8 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     if (!isModalOpen || !id) {
       setSimilarIssues([]);
       setIsCheckingSimilarIssues(false);
+      setSimilarIssuesError(null);
+      setSubmittingSimilarIssueFeedbackKey(null);
       return undefined;
     }
 
@@ -79,6 +83,7 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     if (trimmedTitle.length < 4) {
       setSimilarIssues([]);
       setIsCheckingSimilarIssues(false);
+      setSimilarIssuesError(null);
       return undefined;
     }
 
@@ -89,10 +94,12 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
         const data = await api.getSimilarIssues(Number(id), trimmedTitle);
         if (!isCancelled) {
           setSimilarIssues(data);
+          setSimilarIssuesError(null);
         }
-      } catch (error) {
+      } catch (error: any) {
         if (!isCancelled) {
           setSimilarIssues([]);
+          setSimilarIssuesError(error?.message || 'Semakan isu berulang tidak berjaya dijalankan buat masa ini.');
         }
         console.error(error);
       } finally {
@@ -180,6 +187,29 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     }
   };
 
+  const getSimilarIssueFeedbackKey = (issue: SimilarIssue) => `${issue.id}-${issue.meeting_id}`;
+
+  const refreshSimilarIssues = async (issueTitle: string) => {
+    if (!id || issueTitle.trim().length < 4) {
+      setSimilarIssues([]);
+      setSimilarIssuesError(null);
+      return;
+    }
+
+    setIsCheckingSimilarIssues(true);
+    try {
+      const data = await api.getSimilarIssues(Number(id), issueTitle.trim());
+      setSimilarIssues(data);
+      setSimilarIssuesError(null);
+    } catch (error: any) {
+      console.error(error);
+      setSimilarIssues([]);
+      setSimilarIssuesError(error?.message || 'Semakan isu berulang tidak berjaya dijalankan buat masa ini.');
+    } finally {
+      setIsCheckingSimilarIssues(false);
+    }
+  };
+
   const handleAddIssue = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
@@ -193,6 +223,8 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
         status: 'Belum Selesai'
       });
       setSimilarIssues([]);
+      setSimilarIssuesError(null);
+      setSubmittingSimilarIssueFeedbackKey(null);
       setIssueCategorySuggestion(null);
       showToast('Isu berjaya ditambah');
       fetchData();
@@ -943,6 +975,10 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
                   {isCheckingSimilarIssues ? (
                     <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
                       Sedang menyemak isu berulang dalam {similarIssueScopeLabel}...
+                    </div>
+                  ) : similarIssuesError ? (
+                    <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+                      Semakan isu berulang tidak dapat diselesaikan. {similarIssuesError}
                     </div>
                   ) : hasSimilarIssueMatches ? (
                     <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4">

@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
-import { User, Department, OFFICIAL_ISSUE_CATEGORIES, CATEGORY_FAMILY_MAP } from '../types';
-import { Users, Building2, Tag, Trash2, UserPlus, CheckCircle2, XCircle, Clock3 } from 'lucide-react';
+import { Announcement, User, Department, OFFICIAL_ISSUE_CATEGORIES, CATEGORY_FAMILY_MAP } from '../types';
+import { Users, Building2, Tag, Trash2, UserPlus, CheckCircle2, XCircle, Clock3, Bell } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
 
 export default function Settings() {
   const { showToast } = useToast();
-  const [activeTab, setActiveTab] = useState<'users' | 'departments' | 'categories'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'departments' | 'categories' | 'announcements'>('users');
   const [users, setUsers] = useState<User[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [categories, setCategories] = useState<{ id: number; name: string }[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<{
@@ -30,6 +31,7 @@ export default function Settings() {
   const [newUser, setNewUser] = useState({ username: '', password: '', role: 'USER', department_id: '' });
   const [newDept, setNewDept] = useState('');
   const [newCat, setNewCat] = useState(OFFICIAL_ISSUE_CATEGORIES[0] || '');
+  const [newAnnouncement, setNewAnnouncement] = useState({ title: '', message: '' });
   const pendingUsers = users.filter((user) => user.status === 'PENDING');
   const managedUsers = users.filter((user) => user.status !== 'PENDING');
   const normalizeCategoryName = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -80,7 +82,13 @@ export default function Settings() {
     }
   }, [activeTab, missingOfficialCategories, newCat]);
 
-  const fetchData = async (tab: 'users' | 'departments' | 'categories' = activeTab) => {
+  useEffect(() => {
+    if (newUser.role === 'ADMIN' && newUser.department_id !== '') {
+      setNewUser((current) => ({ ...current, department_id: '' }));
+    }
+  }, [newUser.role, newUser.department_id]);
+
+  const fetchData = async (tab: 'users' | 'departments' | 'categories' | 'announcements' = activeTab) => {
     setLoading(true);
     try {
       if (tab === 'users') {
@@ -101,9 +109,14 @@ export default function Settings() {
         const c = await api.getCategories();
         setCategories(c);
       }
+
+      if (tab === 'announcements') {
+        const data = await api.getAnnouncements();
+        setAnnouncements(data);
+      }
     } catch (err) {
       console.error(err);
-      showToast(`Gagal memuatkan data tab ${tab === 'users' ? 'pengguna' : tab === 'departments' ? 'jabatan' : 'kategori'}`, 'error');
+      showToast(`Gagal memuatkan data tab ${tab === 'users' ? 'pengguna' : tab === 'departments' ? 'jabatan' : tab === 'categories' ? 'kategori' : 'announcement'}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -115,7 +128,7 @@ export default function Settings() {
       setIsCreating(true);
       await api.createUser({
         ...newUser,
-        department_id: newUser.department_id ? Number(newUser.department_id) : null
+        department_id: newUser.role === 'USER' && newUser.department_id ? Number(newUser.department_id) : null
       });
       setNewUser({ username: '', password: '', role: 'USER', department_id: '' });
       showToast('Pengguna berjaya diwujudkan');
@@ -156,6 +169,21 @@ export default function Settings() {
       fetchData('categories');
     } catch (err) {
       showToast('Gagal mewujudkan kategori', 'error');
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleCreateAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setIsCreating(true);
+      await api.createAnnouncement(newAnnouncement);
+      setNewAnnouncement({ title: '', message: '' });
+      showToast('Announcement berjaya dihantar');
+      fetchData('announcements');
+    } catch (err: any) {
+      showToast(err?.message || 'Gagal menghantar announcement', 'error');
     } finally {
       setIsCreating(false);
     }
@@ -255,6 +283,25 @@ export default function Settings() {
     });
   };
 
+  const handleDeleteAnnouncement = (announcement: Announcement) => {
+    setConfirmConfig({
+      isOpen: true,
+      title: 'Nyahaktif Announcement',
+      message: 'Announcement ini akan dihentikan daripada notifikasi pengguna. Teruskan?',
+      isDanger: true,
+      onConfirm: async () => {
+        setConfirmConfig(prev => ({ ...prev, isOpen: false }));
+        try {
+          await api.deleteAnnouncement(announcement.id);
+          showToast('Announcement berjaya dinyahaktifkan');
+          fetchData('announcements');
+        } catch (err: any) {
+          showToast(err?.message || 'Gagal menyahaktifkan announcement', 'error');
+        }
+      }
+    });
+  };
+
   return (
     <div className="space-y-6">
       <ConfirmModal
@@ -292,6 +339,12 @@ export default function Settings() {
         >
           <Tag size={18} /> Kategori
         </button>
+        <button 
+          onClick={() => setActiveTab('announcements')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${activeTab === 'announcements' ? 'bg-white text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+        >
+          <Bell size={18} /> Announcement
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -327,12 +380,21 @@ export default function Settings() {
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Peranan</label>
                   <select 
                     value={newUser.role}
-                    onChange={(e) => setNewUser({...newUser, role: e.target.value})}
+                    onChange={(e) => setNewUser({
+                      ...newUser,
+                      role: e.target.value,
+                      department_id: e.target.value === 'ADMIN' ? '' : newUser.department_id,
+                    })}
                     className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
                   >
                     <option value="USER">Pengguna (Jabatan)</option>
                     <option value="ADMIN">Pentadbir (HQ)</option>
                   </select>
+                </div>
+                <div className={`rounded-xl border p-3 text-sm leading-6 ${newUser.role === 'ADMIN' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-900'}`}>
+                  {newUser.role === 'ADMIN'
+                    ? 'Akaun pentadbir HQ tidak memerlukan jabatan. Sistem akan simpan akaun ini di bawah Pentadbiran HQ.'
+                    : 'Akaun pengguna jabatan mesti dipautkan kepada satu jabatan yang sah.'}
                 </div>
                 {newUser.role === 'USER' && (
                   <div>
@@ -344,7 +406,7 @@ export default function Settings() {
                       className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
                     >
                       <option value="">Pilih Jabatan</option>
-                      {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                      {departments.filter((department) => department.name !== 'HQ').map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                     </select>
                   </div>
                 )}
@@ -444,6 +506,54 @@ export default function Settings() {
                 </button>
               </form>
             )}
+
+            {activeTab === 'announcements' && (
+              <form onSubmit={handleCreateAnnouncement} className="space-y-4">
+                <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                  <Bell size={20} className="text-emerald-600" /> Hantar Announcement Baharu
+                </h3>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900">
+                  Announcement ini akan muncul pada loceng notifikasi pengguna jabatan sehingga ditandakan sebagai telah dibaca.
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Tajuk Announcement</label>
+                  <input 
+                    type="text"
+                    required
+                    maxLength={160}
+                    value={newAnnouncement.title}
+                    onChange={(e) => setNewAnnouncement({ ...newAnnouncement, title: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Contoh: Pemakluman penghantaran laporan suku tahun"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Mesej Announcement</label>
+                  <textarea
+                    required
+                    rows={6}
+                    value={newAnnouncement.message}
+                    onChange={(e) => setNewAnnouncement({ ...newAnnouncement, message: e.target.value })}
+                    className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
+                    placeholder="Nyatakan pemakluman rasmi kepada pengguna jabatan..."
+                  />
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={isCreating}
+                  className="w-full bg-emerald-600 text-white py-2.5 rounded-lg font-bold hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isCreating ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Sedang menghantar...
+                    </>
+                  ) : (
+                    'Hantar Announcement'
+                  )}
+                </button>
+              </form>
+            )}
           </div>
         </div>
 
@@ -525,7 +635,9 @@ export default function Settings() {
                         <div className="text-xs text-slate-500">{u.role} | {u.status === 'REJECTED' ? 'Ditolak' : 'Diluluskan'}</div>
                       </td>
                       <td className="px-6 py-4">
-                        <span className="text-sm text-slate-600">{u.department_name || 'HQ / Pentadbir'}</span>
+                        <span className="text-sm text-slate-600">
+                          {u.role === 'ADMIN' ? 'Pentadbiran HQ' : (u.department_name || 'Jabatan tidak ditetapkan')}
+                        </span>
                       </td>
                       <td className="px-6 py-4 text-right">
                         {u.status === 'REJECTED' && (
@@ -608,6 +720,36 @@ export default function Settings() {
                         <button onClick={() => handleDeleteCat(c.id)} className="text-slate-300 hover:text-red-500 p-2">
                           <Trash2 size={18} />
                         </button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {activeTab === 'announcements' && announcements.map((announcement) => (
+                    <tr key={announcement.id} className="hover:bg-slate-50/50 transition-colors align-top">
+                      <td className="px-6 py-4">
+                        <div className="font-bold text-slate-800">{announcement.title}</div>
+                        <div className="mt-2 text-sm leading-6 text-slate-600 whitespace-pre-wrap">{announcement.message}</div>
+                      </td>
+                      <td className="px-6 py-4 text-sm text-slate-500">
+                        <div>{announcement.is_active === 1 ? 'Aktif untuk notifikasi pengguna' : 'Tidak aktif'}</div>
+                        <div className="mt-1">Dicipta oleh: {announcement.created_by_username || 'Pentadbir'}</div>
+                        <div className="mt-1">
+                          {new Date(announcement.created_at).toLocaleString('ms-MY', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </div>
+                        <div className="mt-1">Dibaca oleh pengguna: {announcement.read_count ?? 0}</div>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        {announcement.is_active === 1 && (
+                          <button onClick={() => handleDeleteAnnouncement(announcement)} className="text-slate-300 hover:text-red-500 p-2">
+                            <Trash2 size={18} />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

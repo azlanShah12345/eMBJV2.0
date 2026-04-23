@@ -1,6 +1,6 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { Meeting, MeetingMessageUnreadSummary, User } from '../types';
-import { LogOut, LayoutDashboard, Settings, User as UserIcon, Menu, X, KeyRound, Bell, Lock, Trash2, FileText, Activity } from 'lucide-react';
+import { AnnouncementUnreadSummary, Meeting, MeetingMessageUnreadSummary, ReportSubmissionReminderUnreadSummary, User } from '../types';
+import { LogOut, LayoutDashboard, Settings, User as UserIcon, Menu, X, KeyRound, Bell, Lock, Trash2, FileText, Activity, Clock3 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api';
 
@@ -16,6 +16,8 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   const [adminMeetings, setAdminMeetings] = useState<Meeting[]>([]);
   const [seenNotificationKeys, setSeenNotificationKeys] = useState<string[]>([]);
   const [messageUnreadSummary, setMessageUnreadSummary] = useState<MeetingMessageUnreadSummary>({ total_unread: 0, items: [] });
+  const [announcementUnreadSummary, setAnnouncementUnreadSummary] = useState<AnnouncementUnreadSummary>({ total_unread: 0, items: [] });
+  const [reportReminderUnreadSummary, setReportReminderUnreadSummary] = useState<ReportSubmissionReminderUnreadSummary>({ total_unread: 0, items: [] });
 
   const handleLogout = () => {
     onLogout();
@@ -27,11 +29,15 @@ export default function Layout({ user, onLogout }: LayoutProps) {
     const fetchNotifications = async () => {
       try {
         if (isMounted) {
-          const [messageSummary, meetings] = await Promise.all([
+          const [messageSummary, announcementSummary, reportReminderSummary, meetings] = await Promise.all([
             api.getMeetingMessageUnreadSummary(),
+            api.getAnnouncementUnreadSummary(),
+            api.getReportSubmissionReminderUnreadSummary(),
             user.role === 'ADMIN' ? api.getMeetings() : Promise.resolve([]),
           ]);
           setMessageUnreadSummary(messageSummary);
+          setAnnouncementUnreadSummary(announcementSummary);
+          setReportReminderUnreadSummary(reportReminderSummary);
           if (user.role === 'ADMIN') {
             setAdminMeetings(meetings as Meeting[]);
           }
@@ -71,13 +77,41 @@ export default function Layout({ user, onLogout }: LayoutProps) {
   }, [requestNotifications]);
 
   const unreadNotifications = requestNotifications.filter((item) => !seenNotificationKeys.includes(item.key));
-  const totalUnreadBadge = unreadNotifications.length + messageUnreadSummary.total_unread;
+  const totalUnreadBadge =
+    unreadNotifications.length +
+    messageUnreadSummary.total_unread +
+    announcementUnreadSummary.total_unread +
+    reportReminderUnreadSummary.total_unread;
   const navLinkClassName = ({ isActive }: { isActive: boolean }) =>
     `group flex items-center gap-3 rounded-2xl border px-3 py-3 transition-all ${
       isActive
         ? 'border-emerald-200 bg-white text-slate-900 shadow-lg shadow-emerald-950/10'
         : 'border-transparent text-slate-200 hover:border-white/10 hover:bg-white/10 hover:text-white'
     }`;
+
+  const handleAnnouncementRead = async (announcementId: number) => {
+    try {
+      await api.markAnnouncementRead(announcementId);
+      setAnnouncementUnreadSummary((current) => ({
+        total_unread: Math.max(0, current.total_unread - 1),
+        items: current.items.filter((item) => item.id !== announcementId),
+      }));
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const handleReportReminderRead = async (reminderId: number) => {
+    try {
+      await api.markReportSubmissionReminderRead(reminderId);
+      setReportReminderUnreadSummary((current) => ({
+        total_unread: Math.max(0, current.total_unread - 1),
+        items: current.items.filter((item) => item.id !== reminderId),
+      }));
+    } catch (error) {
+      console.error(error);
+    }
+  };
 
   return (
     <div className="flex min-h-screen items-start bg-transparent">
@@ -153,6 +187,23 @@ export default function Layout({ user, onLogout }: LayoutProps) {
             )}
           </NavLink>
           {user.role === 'ADMIN' && (
+            <NavLink to="/report-reminders" className={navLinkClassName}>
+              {({ isActive }) => (
+                <>
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-white/10 text-slate-100 group-hover:bg-white/15'}`}>
+                    <Clock3 size={20} />
+                  </div>
+                  {isSidebarOpen && (
+                    <div className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold">Peringatan Pelaporan</span>
+                      <span className={`block text-xs ${isActive ? 'text-slate-500' : 'text-slate-300/80'}`}>Laporan tahun lepas yang belum lengkap</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </NavLink>
+          )}
+          {user.role === 'ADMIN' && (
             <NavLink to="/audit-trail" className={navLinkClassName}>
               {({ isActive }) => (
                 <>
@@ -196,7 +247,9 @@ export default function Layout({ user, onLogout }: LayoutProps) {
             {isSidebarOpen && (
               <div className="flex flex-col overflow-hidden">
                 <span className="truncate text-sm font-bold text-white">{user.username}</span>
-                <span className="truncate text-xs text-slate-300">{user.department_name}</span>
+                <span className="truncate text-xs text-slate-300">
+                  {user.role === 'ADMIN' ? 'Pentadbiran HQ' : user.department_name}
+                </span>
               </div>
             )}
           </div>
@@ -242,9 +295,105 @@ export default function Layout({ user, onLogout }: LayoutProps) {
                 <div className="absolute right-0 top-14 z-20 w-[360px] overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-2xl shadow-slate-300/40">
                   <div className="border-b border-slate-100 px-4 py-3">
                     <p className="text-sm font-bold text-slate-900">Notifikasi Sistem</p>
-                    <p className="mt-1 text-xs text-slate-500">Semakan mesej belum dibaca dan tindakan yang memerlukan perhatian.</p>
+                    <p className="mt-1 text-xs text-slate-500">Semakan peringatan HQ, announcement, mesej belum dibaca, dan tindakan yang memerlukan perhatian.</p>
                   </div>
                   <div className="max-h-[420px] overflow-y-auto">
+                    {reportReminderUnreadSummary.items.length > 0 && (
+                      <div className="border-b border-slate-100">
+                        <div className="px-4 py-3">
+                          <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Peringatan HQ</p>
+                        </div>
+                        {reportReminderUnreadSummary.items.map((item) => (
+                          <div
+                            key={`report-reminder-${item.id}`}
+                            className="border-t border-slate-100 px-4 py-3"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 rounded-xl bg-amber-50 p-2 text-amber-600">
+                                <Clock3 size={16} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                  <p className="text-sm font-semibold text-slate-800">{item.title}</p>
+                                  <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-bold text-amber-700">
+                                    Perlu tindakan
+                                  </span>
+                                </div>
+                                <p className="mt-1 line-clamp-3 text-xs text-slate-500">{item.message}</p>
+                                {item.missing_labels.length > 0 && (
+                                  <p className="mt-1 text-[11px] text-slate-400">
+                                    Bil belum lengkap: {item.missing_labels.join(', ')}
+                                  </p>
+                                )}
+                                <p className="mt-1 text-[11px] text-slate-400">
+                                  {new Date(item.created_at).toLocaleString('ms-MY', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleReportReminderRead(item.id)}
+                                  className="mt-2 text-xs font-bold text-emerald-700 transition-colors hover:text-emerald-900"
+                                >
+                                  Tandakan telah dibaca
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {announcementUnreadSummary.items.length > 0 && (
+                      <div className="border-b border-slate-100">
+                        <div className="px-4 py-3">
+                          <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">Announcement Baharu</p>
+                        </div>
+                        {announcementUnreadSummary.items.map((item) => (
+                          <div
+                            key={`announcement-${item.id}`}
+                            className="border-t border-slate-100 px-4 py-3"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="mt-0.5 rounded-xl bg-blue-50 p-2 text-blue-600">
+                                <Bell size={16} />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                  <p className="text-sm font-semibold text-slate-800">{item.title}</p>
+                                  <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold text-blue-700">
+                                    Baharu
+                                  </span>
+                                </div>
+                                <p className="mt-1 line-clamp-3 text-xs text-slate-500">{item.message}</p>
+                                <p className="mt-1 text-[11px] text-slate-400">
+                                  {new Date(item.created_at).toLocaleString('ms-MY', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                  {item.created_by_username ? ` | Oleh ${item.created_by_username}` : ''}
+                                </p>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAnnouncementRead(item.id)}
+                                  className="mt-2 text-xs font-bold text-emerald-700 transition-colors hover:text-emerald-900"
+                                >
+                                  Tandakan telah dibaca
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
                     {messageUnreadSummary.items.length > 0 && (
                       <div className="border-b border-slate-100">
                         <div className="px-4 py-3">
@@ -319,7 +468,7 @@ export default function Layout({ user, onLogout }: LayoutProps) {
                       </div>
                     )}
 
-                    {messageUnreadSummary.items.length === 0 && requestNotifications.length === 0 && (
+                    {reportReminderUnreadSummary.items.length === 0 && announcementUnreadSummary.items.length === 0 && messageUnreadSummary.items.length === 0 && requestNotifications.length === 0 && (
                       <div className="px-4 py-6 text-sm italic text-slate-400">
                         Tiada notifikasi baharu pada masa ini.
                       </div>

@@ -1,4 +1,4 @@
-import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog, DashboardIssue, SystemStatus, IssueCategorySuggestion } from '../types';
+import { User, Department, Meeting, Issue, SimilarIssue, CategoryStats, PengelasanReport, MeetingMessage, MeetingMessageUnreadSummary, AuditLog, DashboardIssue, SystemStatus, IssueCategorySuggestion, Announcement, AnnouncementUnreadSummary, LastYearIncompleteReportItem, ReportSubmissionReminderUnreadSummary } from '../types';
 
 const API_BASE = '/api';
 
@@ -87,6 +87,7 @@ export const api = {
     keyword?: string;
     year?: number;
     status?: 'Selesai' | 'Belum Selesai';
+    issue_age_bucket?: '3_bulan' | '6_bulan' | '1_tahun' | 'lebih_setahun';
     official_only?: boolean;
   }): Promise<DashboardIssue[]> {
     const query = new URLSearchParams(
@@ -146,6 +147,83 @@ export const api = {
 
   async getMeetingMessageUnreadSummary(): Promise<MeetingMessageUnreadSummary> {
     const res = await fetch(`${API_BASE}/messages/unread-summary`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getAnnouncements(): Promise<Announcement[]> {
+    const res = await fetch(`${API_BASE}/announcements`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async createAnnouncement(payload: { title: string; message: string }) {
+    const res = await fetch(`${API_BASE}/announcements`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(payload),
+    });
+    return handleResponse(res);
+  },
+
+  async deleteAnnouncement(id: number) {
+    const res = await fetch(`${API_BASE}/announcements/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  async markAnnouncementRead(id: number) {
+    const res = await fetch(`${API_BASE}/announcements/${id}/read`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  async getAnnouncementUnreadSummary(): Promise<AnnouncementUnreadSummary> {
+    const res = await fetch(`${API_BASE}/announcements/unread-summary`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async getLastYearIncompleteReports(year?: number): Promise<LastYearIncompleteReportItem[]> {
+    const query = new URLSearchParams(
+      Object.entries({ year }).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      }, {})
+    ).toString();
+    const res = await fetch(`${API_BASE}/admin/report-completeness/last-year${query ? `?${query}` : ''}`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async sendLastYearReportReminder(departmentId: number, year?: number) {
+    const query = new URLSearchParams(
+      Object.entries({ year }).reduce<Record<string, string>>((acc, [key, value]) => {
+        if (value !== undefined && value !== null) {
+          acc[key] = String(value);
+        }
+        return acc;
+      }, {})
+    ).toString();
+    const res = await fetch(`${API_BASE}/admin/report-completeness/last-year/${departmentId}/remind${query ? `?${query}` : ''}`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
+    return handleResponse(res);
+  },
+
+  async getReportSubmissionReminderUnreadSummary(): Promise<ReportSubmissionReminderUnreadSummary> {
+    const res = await fetch(`${API_BASE}/report-submission-reminders/unread-summary`, { headers: getHeaders() });
+    return handleResponse(res);
+  },
+
+  async markReportSubmissionReminderRead(id: number) {
+    const res = await fetch(`${API_BASE}/report-submission-reminders/${id}/read`, {
+      method: 'POST',
+      headers: getHeaders(),
+    });
     return handleResponse(res);
   },
 

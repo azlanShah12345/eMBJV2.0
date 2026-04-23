@@ -51,6 +51,7 @@ export interface DashboardIssue extends Issue {
   department_id: number;
   department_name: string;
   meeting_is_locked: number;
+  issue_age_days?: number;
 }
 
 export interface DashboardIssueFilters {
@@ -60,6 +61,7 @@ export interface DashboardIssueFilters {
   category?: string;
   keyword?: string;
   status?: 'Selesai' | 'Belum Selesai' | '';
+  issue_age_bucket?: '3_bulan' | '6_bulan' | '1_tahun' | 'lebih_setahun' | '';
 }
 
 export interface SimilarIssue {
@@ -110,6 +112,56 @@ export interface MeetingMessageUnreadItem {
 export interface MeetingMessageUnreadSummary {
   total_unread: number;
   items: MeetingMessageUnreadItem[];
+}
+
+export interface Announcement {
+  id: number;
+  title: string;
+  message: string;
+  is_active: number;
+  created_at: string;
+  created_by: number | null;
+  created_by_username: string | null;
+  is_read?: number;
+  read_count?: number;
+}
+
+export interface AnnouncementUnreadItem {
+  id: number;
+  title: string;
+  message: string;
+  created_at: string;
+  created_by_username: string | null;
+}
+
+export interface AnnouncementUnreadSummary {
+  total_unread: number;
+  items: AnnouncementUnreadItem[];
+}
+
+export interface LastYearIncompleteReportItem {
+  department_id: number;
+  department_name: string;
+  report_year: number;
+  submitted_labels: string[];
+  missing_labels: string[];
+  submitted_count: number;
+  active_user_count: number;
+  latest_reminder_at: string | null;
+}
+
+export interface ReportSubmissionReminderUnreadItem {
+  id: number;
+  report_year: number;
+  title: string;
+  message: string;
+  missing_labels: string[];
+  created_at: string;
+}
+
+export interface ReportSubmissionReminderUnreadSummary {
+  total_unread: number;
+  items: ReportSubmissionReminderUnreadItem[];
 }
 
 export interface AuditLog {

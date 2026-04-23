@@ -115,8 +115,8 @@ export default function Dashboard() {
       return;
     }
 
-    if (!selectedYear || !availableYears.includes(Number(selectedYear))) {
-      setSelectedYear(String(availableYears[0]));
+    if (selectedYear && !availableYears.includes(Number(selectedYear))) {
+      setSelectedYear('');
     }
   }, [meetings, selectedYear]);
 
@@ -157,7 +157,7 @@ export default function Dashboard() {
       const [depts, allMeetings, allCategories] = await Promise.all([
         api.getDepartments(),
         api.getMeetings(),
-        api.getCategories()
+        api.getCategories(),
       ]);
       setDepartments(depts);
       setCategories(
@@ -1315,7 +1315,7 @@ export default function Dashboard() {
             <p className="text-sm text-slate-500">Gunakan penapis untuk semak prestasi mengikut jabatan, mesyuarat, atau kategori.</p>
           </div>
           <button 
-            onClick={() => { setDeptId(''); setSelectedYear(analyticsYears[0] ? String(analyticsYears[0]) : ''); setBil(''); setCategory(''); }}
+            onClick={() => { setDeptId(''); setSelectedYear(''); setBil(''); setCategory(''); }}
             className="rounded-lg px-4 py-2 text-sm font-semibold text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800"
           >
             Tetapkan Semula Penapis
@@ -1331,6 +1331,7 @@ export default function Dashboard() {
             onChange={(e) => setSelectedYear(e.target.value)}
             className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
           >
+            <option value="">Semua Tahun</option>
             {analyticsYears.length === 0 && <option value="">Tiada Tahun</option>}
             {analyticsYears.map((year) => (
               <option key={year} value={year}>{year}</option>
@@ -1395,12 +1396,12 @@ export default function Dashboard() {
             <p className="mt-2 text-sm font-semibold text-slate-800">{visibleStats.length} kategori mempunyai data</p>
           </div>
         </div>
-        {(deptId || bil || category || (selectedYear && analyticsYears[0] && String(analyticsYears[0]) !== selectedYear)) && (
+        {(deptId || bil || category || selectedYear) && (
           <div className="mt-4 flex flex-wrap gap-3">
-            {selectedYear && analyticsYears[0] && String(analyticsYears[0]) !== selectedYear && (
+            {selectedYear && (
               <button
                 type="button"
-                onClick={() => setSelectedYear(analyticsYears[0] ? String(analyticsYears[0]) : '')}
+                onClick={() => setSelectedYear('')}
                 className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 transition-colors hover:bg-slate-50"
               >
                 Buang penapis tahun
