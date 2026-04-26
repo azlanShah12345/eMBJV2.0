@@ -4,6 +4,7 @@ import { Calendar, CheckCircle2, ChevronRight, Clock3, FileText, FolderArchive, 
 import { api } from '../services/api';
 import { Meeting, User } from '../types';
 import { useToast } from '../components/Toast';
+import { getMeetingSubmissionLabel } from '../utils/meetingSubmission';
 
 interface UserMeetingsProps {
   user: User;
@@ -352,6 +353,12 @@ export default function UserMeetings({ user }: UserMeetingsProps) {
                         <p className="font-bold uppercase tracking-[0.18em] text-slate-400">Tahun</p>
                         <p className="mt-1 font-semibold text-slate-700">{new Date(meeting.tarikh_mesyuarat).getFullYear()}</p>
                       </div>
+                      {meeting.is_locked === 1 && (
+                        <div className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs">
+                          <p className="font-bold uppercase tracking-[0.18em] text-emerald-700">Tarikh Hantar Ke HQ</p>
+                          <p className="mt-1 font-semibold text-emerald-800">{getMeetingSubmissionLabel(meeting.submitted_at)}</p>
+                        </div>
+                      )}
                       <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 text-sm font-semibold text-emerald-600">
                         Lihat Butiran
                         <ChevronRight size={18} className="transform transition-transform group-hover:translate-x-1" />

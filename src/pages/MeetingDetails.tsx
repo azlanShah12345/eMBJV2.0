@@ -5,6 +5,7 @@ import { Issue, IssueCategorySuggestion, MeetingMessage, OFFICIAL_ISSUE_CATEGORI
 import { ArrowLeft, Plus, Trash2, CheckCircle2, Circle, Lock, Download, FileText, XCircle, AlertTriangle, Send, MessageSquare, Sparkles } from 'lucide-react';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
+import { getMeetingSubmissionLabel } from '../utils/meetingSubmission';
 
 interface MeetingDetailsProps {
   user: User;
@@ -534,7 +535,9 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
     },
     {
       title: 'Penghantaran ke HQ',
-      description: meeting.is_locked ? 'Laporan telah dihantar dan dikunci untuk rekod HQ.' : 'Laporan masih di peringkat jabatan.',
+      description: meeting.is_locked
+        ? `Laporan dihantar ke HQ pada ${getMeetingSubmissionLabel(meeting.submitted_at)} dan dikunci untuk rekod HQ.`
+        : 'Laporan masih di peringkat jabatan.',
       state: meeting.is_locked ? 'done' : 'current',
     },
     {
@@ -706,6 +709,9 @@ export default function MeetingDetails({ user }: MeetingDetailsProps) {
             </div>
             <p className="text-slate-500 font-medium">Tarikh: {new Date(meeting.tarikh_mesyuarat).toLocaleDateString('ms-MY', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
             <p className="text-slate-400 text-sm mt-1">Jabatan: {meeting.department_name}</p>
+            <p className="text-slate-400 text-sm mt-1">
+              Tarikh Hantar ke HQ: {meeting.is_locked ? getMeetingSubmissionLabel(meeting.submitted_at) : 'Belum dihantar'}
+            </p>
             {meeting.submission_method && (
               <p className="text-slate-400 text-sm mt-1">
                 Kaedah Hantar Minit: {meeting.submission_method === 'E' ? 'E - Emel' : 'D - Salinan Keras / Pos'}

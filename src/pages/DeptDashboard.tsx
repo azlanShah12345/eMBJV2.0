@@ -4,6 +4,7 @@ import { BarChart3, CalendarDays, CheckCircle2, ChevronRight, Clock3, FileText, 
 import { api } from '../services/api';
 import DashboardIssueExplorer from '../components/DashboardIssueExplorer';
 import { DashboardIssueFilters, Meeting, User } from '../types';
+import { getMeetingSubmissionLabel } from '../utils/meetingSubmission';
 
 interface DeptDashboardProps {
   user: User;
@@ -63,6 +64,13 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
 
   const submittedMeetings = filteredMeetings.filter((meeting) => meeting.is_locked === 1);
   const draftMeetings = filteredMeetings.filter((meeting) => meeting.is_locked !== 1);
+  const latestSubmittedMeeting = submittedMeetings
+    .slice()
+    .sort((left, right) => {
+      const leftTime = left.submitted_at ? new Date(left.submitted_at).getTime() : 0;
+      const rightTime = right.submitted_at ? new Date(right.submitted_at).getTime() : 0;
+      return rightTime - leftTime;
+    })[0];
   const totalIssues = filteredMeetings.reduce((sum, meeting) => sum + Number(meeting.total_issues || 0), 0);
   const completedIssues = filteredMeetings.reduce((sum, meeting) => sum + Number(meeting.completed_issues || 0), 0);
   const pendingIssues = Math.max(0, totalIssues - completedIssues);
@@ -161,7 +169,11 @@ export default function DeptDashboard({ user }: DeptDashboardProps) {
             <div>
               <p className="text-xs font-bold uppercase tracking-[0.24em] text-slate-400">Dihantar Ke HQ</p>
               <p className="mt-3 text-3xl font-black text-slate-900">{submittedMeetings.length}</p>
-              <p className="mt-2 text-sm text-slate-500">Rekod rasmi untuk tahun dipilih</p>
+              <p className="mt-2 text-sm text-slate-500">
+                {latestSubmittedMeeting?.submitted_at
+                  ? `Terakhir dihantar pada ${getMeetingSubmissionLabel(latestSubmittedMeeting.submitted_at)}`
+                  : 'Rekod rasmi untuk tahun dipilih'}
+              </p>
             </div>
             <div className="rounded-2xl bg-emerald-50 p-3 text-emerald-600">
               <CheckCircle2 size={22} />

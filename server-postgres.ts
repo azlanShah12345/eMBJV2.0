@@ -573,6 +573,7 @@ const bootstrapDatabase = async () => {
       id SERIAL PRIMARY KEY,
       bil_mesyuarat TEXT NOT NULL,
       tarikh_mesyuarat DATE NOT NULL,
+      submitted_at TIMESTAMPTZ,
       department_id INTEGER NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
       minit_path TEXT,
       submission_method TEXT,
@@ -681,6 +682,7 @@ const bootstrapDatabase = async () => {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
     ALTER TABLE meetings ADD COLUMN IF NOT EXISTS minit_path TEXT;
     ALTER TABLE meetings ADD COLUMN IF NOT EXISTS submission_method TEXT;
+    ALTER TABLE meetings ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ;
     ALTER TABLE meetings ADD COLUMN IF NOT EXISTS unlock_requested INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE meetings ADD COLUMN IF NOT EXISTS unlock_rejected INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE meetings ADD COLUMN IF NOT EXISTS delete_requested INTEGER NOT NULL DEFAULT 0;
@@ -714,6 +716,21 @@ const bootstrapDatabase = async () => {
     ALTER TABLE issue_similarity_feedback ADD COLUMN IF NOT EXISTS normalized_input_title TEXT;
     ALTER TABLE issue_similarity_feedback ADD COLUMN IF NOT EXISTS feedback_type TEXT;
     ALTER TABLE issue_similarity_feedback ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
+  `);
+
+  await query(`
+    UPDATE meetings m
+    SET submitted_at = audit_info.first_submitted_at
+    FROM (
+      SELECT entity_id::INTEGER AS meeting_id, MIN(created_at) AS first_submitted_at
+      FROM audit_logs
+      WHERE action = 'SUBMIT_MEETING_TO_HQ'
+        AND entity_type = 'MEETING'
+        AND entity_id ~ '^[0-9]+$'
+      GROUP BY entity_id
+    ) audit_info
+    WHERE m.id = audit_info.meeting_id
+      AND m.submitted_at IS NULL;
   `);
 
   await query(`
@@ -2341,7 +2358,10 @@ async function startServer() {
   }));
 
   app.patch('/api/meetings/:id/lock', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
-    await query('UPDATE meetings SET is_locked = 1, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
+    await query(
+      'UPDATE meetings SET is_locked = 1, submitted_at = NOW(), unlock_requested = 0, unlock_rejected = 0 WHERE id = $1',
+      [req.params.id]
+    );
     await writeAuditLog(req, {
       actor: req.user,
       action: 'LOCK_MEETING',
@@ -2361,7 +2381,7 @@ async function startServer() {
     }
 
     await query(
-      'UPDATE meetings SET is_locked = 1, unlock_requested = 0, unlock_rejected = 0, delete_requested = 0, delete_rejected = 0 WHERE id = $1',
+      'UPDATE meetings SET is_locked = 1, submitted_at = NOW(), unlock_requested = 0, unlock_rejected = 0, delete_requested = 0, delete_rejected = 0 WHERE id = $1',
       [req.params.id]
     );
     await writeAuditLog(req, {
@@ -2394,7 +2414,7 @@ async function startServer() {
   }));
 
   app.post('/api/meetings/:id/approve-unlock', authenticate, isAdmin, asyncHandler(async (req: any, res) => {
-    await query('UPDATE meetings SET is_locked = 0, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
+    await query('UPDATE meetings SET is_locked = 0, submitted_at = NULL, unlock_requested = 0, unlock_rejected = 0 WHERE id = $1', [req.params.id]);
     await writeAuditLog(req, {
       actor: req.user,
       action: 'APPROVE_UNLOCK_MEETING',

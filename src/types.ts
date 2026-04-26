@@ -17,6 +17,7 @@ export interface Meeting {
   id: number;
   bil_mesyuarat: string;
   tarikh_mesyuarat: string;
+  submitted_at: string | null;
   minit_path: string | null;
   submission_method?: 'D' | 'E' | null;
   department_id: number;
