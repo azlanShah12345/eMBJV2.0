@@ -401,6 +401,16 @@ const parseMeetingLabelList = (value: unknown) =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const MEETING_SUBMISSION_AUDIT_SQL = `
+  LEFT JOIN LATERAL (
+    SELECT MIN(al.created_at) AS first_submitted_at
+    FROM audit_logs al
+    WHERE al.entity_type = 'MEETING'
+      AND al.entity_id = m.id::text
+      AND al.action IN ('SUBMIT_MEETING_TO_HQ', 'LOCK_MEETING')
+  ) submission_audit ON TRUE
+`;
+
 const getIncompleteDepartmentReportsForYear = async (reportYear: number) => {
   const result = await query<{
     department_id: number;
@@ -724,7 +734,7 @@ const bootstrapDatabase = async () => {
     FROM (
       SELECT entity_id::INTEGER AS meeting_id, MIN(created_at) AS first_submitted_at
       FROM audit_logs
-      WHERE action = 'SUBMIT_MEETING_TO_HQ'
+      WHERE action IN ('SUBMIT_MEETING_TO_HQ', 'LOCK_MEETING')
         AND entity_type = 'MEETING'
         AND entity_id ~ '^[0-9]+$'
       GROUP BY entity_id
@@ -1284,20 +1294,23 @@ async function startServer() {
     const meetings = await query(`
       SELECT
         m.*,
+        COALESCE(m.submitted_at, submission_audit.first_submitted_at) AS resolved_submitted_at,
         d.name AS department_name,
         COALESCE(COUNT(i.id), 0) AS total_issues,
         COALESCE(SUM(CASE WHEN i.status = 'Selesai' THEN 1 ELSE 0 END), 0) AS completed_issues,
         STRING_AGG(DISTINCT i.category, ',' ORDER BY i.category) AS issue_categories
       FROM meetings m
       JOIN departments d ON d.id = m.department_id
+      ${MEETING_SUBMISSION_AUDIT_SQL}
       LEFT JOIN issues i ON i.meeting_id = m.id
       ${filterSql}
-      GROUP BY m.id, d.name
+      GROUP BY m.id, d.name, submission_audit.first_submitted_at
       ORDER BY m.tarikh_mesyuarat DESC, m.id DESC
     `, params);
 
     res.json(meetings.rows.map((meeting: any) => ({
       ...meeting,
+      submitted_at: meeting.resolved_submitted_at || meeting.submitted_at || null,
       total_issues: Number(meeting.total_issues || 0),
       completed_issues: Number(meeting.completed_issues || 0),
       minit_path: normalizeMinitPath(meeting.minit_path),
@@ -1450,15 +1463,17 @@ async function startServer() {
     const result = await query(`
       SELECT
         m.*,
+        COALESCE(m.submitted_at, submission_audit.first_submitted_at) AS resolved_submitted_at,
         d.name AS department_name,
         COALESCE(COUNT(i.id), 0) AS total_issues,
         COALESCE(SUM(CASE WHEN i.status = 'Selesai' THEN 1 ELSE 0 END), 0) AS completed_issues,
         STRING_AGG(DISTINCT i.category, ',' ORDER BY i.category) AS issue_categories
       FROM meetings m
       JOIN departments d ON d.id = m.department_id
+      ${MEETING_SUBMISSION_AUDIT_SQL}
       LEFT JOIN issues i ON i.meeting_id = m.id
       WHERE m.id = $1
-      GROUP BY m.id, d.name
+      GROUP BY m.id, d.name, submission_audit.first_submitted_at
     `, [req.params.id]);
 
     const meeting = result.rows[0] as any;
@@ -1469,6 +1484,7 @@ async function startServer() {
 
     res.json({
       ...meeting,
+      submitted_at: meeting.resolved_submitted_at || meeting.submitted_at || null,
       total_issues: Number(meeting.total_issues || 0),
       completed_issues: Number(meeting.completed_issues || 0),
       minit_path: normalizeMinitPath(meeting.minit_path),
